@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "nixfred.net-pulse",
+  "name": "Net Pulse",
+  "version": "1.0.0",
+  "author": "Fred Nix",
+  "license": "MIT",
+  "description": "A living network chip: throughput, latency, Wi-Fi radio detail, interface settings, seven-day history, and focus-only top talkers.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Panel.qml"},
+  "barWidget": {
+    "displayName": "Net Pulse",
+    "description": "Animated network throughput, signal, latency and persistent seven-day history. Wi-Fi, Ethernet and DNS controls inside. Right-click to choose a readout.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

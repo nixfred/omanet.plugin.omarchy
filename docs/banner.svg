@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-label="Net Pulse: a glowing network chip for the Omarchy bar">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b141d"/>
+      <stop offset="1" stop-color="#101c26"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#43f2a1" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#43f2a1" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#43f2a1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ramp" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#850d29"/>
+      <stop offset="0.5" stop-color="#efcc45"/>
+      <stop offset="1" stop-color="#43f2a1"/>
+    </linearGradient>
+    <linearGradient id="down" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#43f2a1" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#43f2a1"/>
+    </linearGradient>
+    <linearGradient id="up" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8d9dff" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#8d9dff"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#1a2833" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="24" fill="url(#grid)" opacity="0.6"/>
+  <rect x="0.5" y="0.5" width="1199" height="359" rx="24" fill="none" stroke="#273843"/>
+
+  <!-- The chip -->
+  <g transform="translate(200 180)">
+    <circle r="160" fill="url(#aura)"/>
+    <g fill="none" stroke="#43f2a1">
+      <circle r="88" stroke-opacity="0.14"/>
+      <circle r="102" stroke-opacity="0.18"/>
+      <circle r="116" stroke-opacity="0.22"/>
+      <path d="M 88 0 A 88 88 0 0 1 62 62" stroke-width="2.5" stroke-opacity="0.9" stroke-linecap="round" filter="url(#softglow)"/>
+      <path d="M -102 0 A 102 102 0 0 1 -72 -72" stroke-width="2.5" stroke-opacity="0.8" stroke-linecap="round" filter="url(#softglow)"/>
+      <path d="M 0 116 A 116 116 0 0 1 -82 82" stroke-width="2.5" stroke-opacity="0.7" stroke-linecap="round" filter="url(#softglow)"/>
+    </g>
+    <!-- pins -->
+    <g stroke="#43f2a1" stroke-width="3" stroke-linecap="round" filter="url(#softglow)">
+      <path d="M-36 -58V-72 M-12 -58V-72 M12 -58V-72 M36 -58V-72"/>
+      <path d="M-36 58V72 M-12 58V72 M12 58V72 M36 58V72"/>
+      <path d="M-58 -36H-72 M-58 -12H-72 M-58 12H-72 M-58 36H-72"/>
+      <path d="M58 -36H72 M58 -12H72 M58 12H72 M58 36H72"/>
+    </g>
+    <!-- packets running the pins -->
+    <g fill="#43f2a1">
+      <circle cx="-36" cy="-84" r="2.4" opacity="0.9"/>
+      <circle cx="12" cy="-92" r="2.4" opacity="0.6"/>
+      <circle cx="84" cy="36" r="2.4" opacity="0.8"/>
+      <circle cx="-90" cy="12" r="2.4" opacity="0.5"/>
+      <circle cx="36" cy="88" r="2.4" opacity="0.7"/>
+    </g>
+    <!-- body -->
+    <rect x="-58" y="-58" width="116" height="116" rx="6" fill="#0b141b" stroke="#43f2a1" stroke-width="3" filter="url(#glow)"/>
+    <g stroke="#43f2a1" stroke-opacity="0.18" stroke-width="1">
+      <path d="M-58 -29H58 M-58 0H58 M-58 29H58"/>
+    </g>
+    <!-- radio arcs -->
+    <g transform="translate(0 38)" fill="none" stroke="#43f2a1" stroke-linecap="round">
+      <circle cx="0" cy="0" r="6" fill="#43f2a1" stroke="none"/>
+      <path d="M -14 -14 A 20 20 0 0 1 14 -14" stroke-width="5" stroke-opacity="0.95"/>
+      <path d="M -28 -28 A 40 40 0 0 1 28 -28" stroke-width="5" stroke-opacity="0.85"/>
+      <path d="M -42 -42 A 60 60 0 0 1 42 -42" stroke-width="5" stroke-opacity="0.6"/>
+      <path d="M -56 -56 A 80 80 0 0 1 56 -56" stroke-width="5" stroke-opacity="0.22"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(430 96)">
+    <text x="0" y="0" fill="#f4fafc" font-family="Inter, DejaVu Sans, sans-serif" font-size="62" font-weight="300" letter-spacing="10">NET PULSE</text>
+    <text x="4" y="34" fill="#91a5b0" font-family="Inter, DejaVu Sans, sans-serif" font-size="19">Your connection, in motion.</text>
+
+    <!-- throughput bars -->
+    <g transform="translate(4 74)">
+      <text x="0" y="0" fill="#7e959f" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" letter-spacing="2">DOWNLOAD</text>
+      <rect x="96" y="-12" width="560" height="14" rx="7" fill="#16242e"/>
+      <rect x="96" y="-12" width="470" height="14" rx="7" fill="url(#down)"/>
+      <text x="672" y="0" fill="#43f2a1" font-family="Inter, DejaVu Sans, sans-serif" font-size="13">18.4 MB/s</text>
+    </g>
+    <g transform="translate(4 106)">
+      <text x="0" y="0" fill="#7e959f" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" letter-spacing="2">UPLOAD</text>
+      <rect x="96" y="-12" width="560" height="14" rx="7" fill="#16242e"/>
+      <rect x="96" y="-12" width="212" height="14" rx="7" fill="url(#up)"/>
+      <text x="672" y="0" fill="#8d9dff" font-family="Inter, DejaVu Sans, sans-serif" font-size="13">3.1 MB/s</text>
+    </g>
+
+    <!-- stat chips -->
+    <g transform="translate(4 140)" font-family="Inter, DejaVu Sans, sans-serif">
+      <g>
+        <rect x="0" y="0" width="168" height="56" rx="12" fill="#111e28" stroke="#253744"/>
+        <text x="14" y="22" fill="#7e959f" font-size="10" letter-spacing="1.4">LATENCY</text>
+        <text x="14" y="43" fill="#eff7fa" font-size="19">11.2 ms</text>
+      </g>
+      <g transform="translate(184 0)">
+        <rect x="0" y="0" width="168" height="56" rx="12" fill="#111e28" stroke="#253744"/>
+        <text x="14" y="22" fill="#7e959f" font-size="10" letter-spacing="1.4">SIGNAL</text>
+        <text x="14" y="43" fill="#eff7fa" font-size="19">-46 dBm</text>
+      </g>
+      <g transform="translate(368 0)">
+        <rect x="0" y="0" width="168" height="56" rx="12" fill="#111e28" stroke="#253744"/>
+        <text x="14" y="22" fill="#7e959f" font-size="10" letter-spacing="1.4">CHANNEL</text>
+        <text x="14" y="43" fill="#eff7fa" font-size="19">161 · 5 GHz</text>
+      </g>
+      <g transform="translate(552 0)">
+        <rect x="0" y="0" width="168" height="56" rx="12" fill="#111e28" stroke="#253744"/>
+        <text x="14" y="22" fill="#7e959f" font-size="10" letter-spacing="1.4">LOSS</text>
+        <text x="14" y="43" fill="#eff7fa" font-size="19">0%</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- colour ramp legend -->
+  <g transform="translate(434 318)">
+    <rect x="0" y="0" width="720" height="8" rx="4" fill="url(#ramp)"/>
+    <text x="0" y="26" fill="#7e959f" font-family="Inter, DejaVu Sans, sans-serif" font-size="11">offline</text>
+    <text x="360" y="26" fill="#7e959f" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" text-anchor="middle">struggling</text>
+    <text x="720" y="26" fill="#7e959f" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" text-anchor="end">clear path</text>
+  </g>
+</svg>
