@@ -5,6 +5,9 @@ import ".." as Pulse
 TestCase {
     name: "NetPulseWidgets"
     when: windowShown
+    // The chip only paints while it is actually on screen, so the case itself
+    // has to be shown or nothing under test ever repaints.
+    visible: true
     width: 760; height: 260
 
     Pulse.HistoryGraph { id: graph; width: 700; height: 139 }
@@ -33,6 +36,23 @@ TestCase {
         wait(30)
         verify(graph.ceiling >= 9000)
         verify(graph.msCeiling >= 20)
+    }
+
+    function test_phase_advances_only_while_animated_and_visible() {
+        failOnWarning(/.*/)
+        chip.animate = false
+        chip.phase = 0
+        wait(250)
+        compare(chip.phase, 0, 'a still chip must not tick')
+        chip.animate = true
+        tryVerify(function() { return chip.phase > 0 }, 2000)
+        chip.visible = false
+        var frozen = chip.phase
+        wait(300)
+        compare(chip.phase, frozen, 'an off-screen chip must not tick')
+        chip.visible = true
+        tryVerify(function() { return chip.phase > frozen }, 2000)
+        chip.animate = false
     }
 
     function test_every_chip_kind_paints() {

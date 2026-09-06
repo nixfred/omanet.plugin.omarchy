@@ -16,15 +16,19 @@ Item {
     readonly property var hoverPoint: hoverIndex >= 0 && hoverIndex < points.length ? points[hoverIndex] : null
     readonly property real ceiling: Model.niceMax(Math.max(historyData.peakRx || 0, historyData.peakTx || 0))
     readonly property real msCeiling: Model.niceMs(historyData.peakLatency || 0)
-    onHistoryDataChanged: { hoverIndex=-1; graph.requestPaint() }
-    onTintChanged: graph.requestPaint()
+    // History keeps landing every 15s while the dashboard is closed. Painting
+    // for it then is wasted; the graph catches up when it becomes visible.
+    function repaint() { if (root.visible) graph.requestPaint() }
+    onHistoryDataChanged: { hoverIndex=-1; repaint() }
+    onTintChanged: repaint()
+    onVisibleChanged: repaint()
     function plotWidth() { return Math.max(1, width-leftAxis-rightAxis) }
     function xFor(ts) { return leftAxis+plotWidth()*(ts-(historyData.now-historyData.seconds))/historyData.seconds }
     Canvas {
         id: graph
         anchors.fill: parent
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
+        onWidthChanged: root.repaint()
+        onHeightChanged: root.repaint()
         onPaint: {
             var c=getContext('2d'), w=root.plotWidth(), h=height-26, x0=root.leftAxis
             c.reset();c.clearRect(0,0,width,height)
