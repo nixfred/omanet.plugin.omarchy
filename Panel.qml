@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
@@ -49,7 +50,12 @@ Panel {
     property string wifiKind: ''
     property string passwordSsid: ''
     property string passwordText: ''
-    readonly property var wifiRows: mergeWifi(net.networks || [], nmNetworks)
+    property var frozenRows: []
+    // While a passphrase is being typed the row list is held still: rebuilding
+    // the delegate underneath would take the field, its cursor and any
+    // in-progress input-method composition with it.
+    readonly property var wifiRows: passwordSsid !== '' && frozenRows.length ? frozenRows : mergeWifi(net.networks || [], nmNetworks)
+    onPasswordSsidChanged: frozenRows = passwordSsid !== '' ? mergeWifi(net.networks || [], nmNetworks) : []
     onWifiRowsChanged: wifiPage = Math.min(wifiPage, Math.max(0, Math.ceil(wifiRows.length/8)-1))
 
     function findDevice(type) {
@@ -156,7 +162,7 @@ Panel {
         return JSON.stringify({opened:opened,mode:mode,readout:Model.readout(net,mode),tint:String(tint),stale:stale,online:!!net.online,health:health,iface:iface.name||'',kind:chipKind,ssid:wifi.ssid||'',rx:(net.rates||{}).rx||0,tx:(net.rates||{}).tx||0,latency:ping.internet,samples:chart.count||0,tab:tab,chooseMode:chooseMode,networks:wifiRows.length,interfaces:(net.interfaces||[]).length,talkers:rows.length,wifiAction:wifiKind,action:actionStatus})
     }
     onOpenedChanged: { if(opened){ snapshotFile.reload(); historyFile.reload() } syncScanner() }
-    onTabChanged: { page=0; wifiPage=0; syncScanner() }
+    onTabChanged: { page=0; wifiPage=0; syncScanner(); if(panel && scroller) scroller.contentY=0 }
     onChooseModeChanged: syncScanner()
     onWifiDeviceChanged: syncScanner()
     Component.onDestruction: if(scanDevice) scanDevice.scannerEnabled=false
@@ -312,8 +318,21 @@ Panel {
                 }
                 Action{text:'Open network dashboard →';width:parent.width;onClicked:root.chooseMode=false}
             }
+            Flickable {
+                id:scroller
+                anchors.fill:parent
+                visible:!root.chooseMode
+                clip:true
+                interactive:contentHeight>height
+                contentWidth:width
+                contentHeight:mainColumn.implicitHeight
+                boundsBehavior:Flickable.StopAtBounds
+                flickDeceleration:6000
+                maximumFlickVelocity:2600
+                ScrollBar.vertical: ScrollBar {policy:scroller.contentHeight>scroller.height?ScrollBar.AlwaysOn:ScrollBar.AlwaysOff;width:6}
+                onVisibleChanged:if(!visible)contentY=0
             Column {
-                id:mainColumn;width:parent.width;spacing:14;visible:!root.chooseMode
+                id:mainColumn;width:scroller.width-(scroller.contentHeight>scroller.height?10:0);spacing:14
                 Row {
                     width:parent.width;spacing:10
                     Column {width:parent.width-250;spacing:3
@@ -349,7 +368,7 @@ Panel {
                                 Text {text:root.stale||!root.net.online?'':'↑ '+Model.rate((root.net.rates||{}).tx);color:'#8d9dff';font.pixelSize:20;font.weight:Font.Light;anchors.bottom:parent.bottom;anchors.bottomMargin:8;textFormat:Text.PlainText}
                             }
                             Label{text:root.stale?'Waiting for the net-pulse service.':!root.net.online?'No default route. Nothing is carrying traffic to the internet.':(Model.isWifi(root.net)?root.wifi.ssid+'  ·  '+(root.wifi.band||'')+(root.wifi.channel?' channel '+root.wifi.channel:''):(root.iface.connection||Model.kindName(root.iface.kind)))+'  ·  '+root.iface.name+'  ·  '+((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]||'no address').split('/')[0];color:'#c4d6dc';width:parent.width;elide:Text.ElideRight}
-                            Label{text:root.net.online?'Gateway '+(root.iface.gateway||'—')+' · '+Model.ms(root.ping.gateway)+'    Internet 1.1.1.1 · '+Model.ms(root.ping.internet)+(Model.num(root.ping.loss)>0?'  ·  '+Model.whole(root.ping.loss)+' loss':'')+'    ·  click any address to copy it':'Pings pause until a route appears.';font.pixelSize:10}
+                            Label{text:root.net.online?'Gateway '+(root.iface.gateway||'—')+' · '+Model.ms(root.ping.gateway)+'    Internet '+(root.ping.probe||'1.1.1.1')+' · '+Model.ms(root.ping.internet)+(Model.num(root.ping.loss)>0?'  ·  '+Model.whole(root.ping.loss)+' loss':'')+'    ·  click any address to copy it':'Pings pause until a route appears.';font.pixelSize:10}
                         }
                         Text {anchors.right:parent.right;anchors.rightMargin:20;anchors.top:parent.top;anchors.topMargin:22;horizontalAlignment:Text.AlignRight;color:Qt.alpha('#edf7fa',0.5);font.pixelSize:15;textFormat:Text.PlainText
                             text:root.stale||!root.net.online?'':Model.isWifi(root.net)?Model.whole(root.wifi.quality)+'\nsignal':Model.mbit(root.iface.speed)+'\nlink'}
@@ -392,7 +411,7 @@ Panel {
                                 Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.tint;font.pixelSize:16}
                                 Node{width:(parent.width-3*22)/4;height:60;label:'DNS';value:currentDns();hint:((root.net.dns||{}).provider||'—')+' · '+dnsCount()+' servers';ok:true;copyWhat:'the resolver'}
                                 Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.tint;font.pixelSize:16}
-                                Node{width:(parent.width-3*22)/4;height:60;label:'INTERNET';value:'1.1.1.1';hint:Model.ms(root.ping.internet)+' round trip · '+String(root.net.connectivity||'unknown');ok:Model.num(root.ping.internet)>=0||!Model.has(root.ping.internet);copyWhat:'the probe target'}
+                                Node{width:(parent.width-3*22)/4;height:60;label:'INTERNET';value:root.ping.probe||'1.1.1.1';hint:Model.ms(root.ping.internet)+' round trip · '+String(root.net.connectivity||'unknown');ok:Model.num(root.ping.internet)>=0||!Model.has(root.ping.internet);copyWhat:'the probe target'}
                             }
                         }
                     }
@@ -500,7 +519,12 @@ Panel {
                             id:card
                             required property var modelData
                             readonly property var s:modelData.settings||{}
+                            readonly property var profiles:modelData.profiles||[]
+                            readonly property bool external:String((modelData.nm||{}).state||'').indexOf('externally')>=0
                             readonly property bool managed:!!(modelData.nm&&modelData.nm.uuid)
+                            // A saved profile is a way back even with nothing active.
+                            readonly property string actionUuid:managed?modelData.nm.uuid:(profiles.length?profiles[0].uuid:'')
+                            readonly property string actionName:managed?modelData.nm.connection:(profiles.length?profiles[0].name:'')
                             readonly property bool connected:modelData.nm&&String(modelData.nm.state||'').indexOf('connected')===0
                             width:mainColumn.width;height:col.implicitHeight+28;radius:14;color:modelData.active?'#101c26':'#0f1922';border.color:modelData.active?Qt.alpha(root.tint,0.5):'#273843'
                             Column{id:col;anchors.fill:parent;anchors.margins:14;spacing:10
@@ -526,10 +550,11 @@ Panel {
                                 Label{visible:card.managed;width:parent.width;elide:Text.ElideRight;font.pixelSize:10;color:'#a4b9c3'
                                     text:'IPv4 '+(card.s.method4||'—')+(card.s.addresses4?' '+card.s.addresses4:'')+(card.s.gateway4?' via '+card.s.gateway4:'')+'  ·  IPv6 '+(card.s.method6||'—')+'  ·  DNS '+(card.s.dns4?card.s.dns4+(card.s.ignoreAutoDns?' (DHCP DNS ignored)':''):'from DHCP')+'  ·  autoconnect '+(card.s.autoconnect?'on':'off')+(card.s.metered&&card.s.metered!=='unknown'?'  ·  metered '+card.s.metered:'')+(card.s.wakeOnLan&&card.s.wakeOnLan!=='default'?'  ·  wake-on-LAN '+card.s.wakeOnLan:'')}
                                 Row{spacing:8
-                                    Action{visible:card.managed&&String(card.modelData.nm.state||'').indexOf('externally')<0;text:card.connected?'Disconnect':'Connect';implicitHeight:28;enabled:!actionProc.running&&card.modelData.kind!=='wifi'||!card.connected;onClicked:root.runAction('connection',[card.connected?'down':'up',card.modelData.nm.uuid],(card.connected?'Deactivating ':'Activating ')+card.modelData.nm.connection+'…')}
-                                    Action{visible:card.managed;text:'Autoconnect '+(card.s.autoconnect?'on':'off');selected:!!card.s.autoconnect;implicitHeight:28;enabled:!actionProc.running;onClicked:root.runAction('autoconnect',[card.modelData.nm.uuid,card.s.autoconnect?'no':'yes'],'Updating autoconnect…')}
-                                    Action{visible:card.managed;text:'Edit connection…';implicitHeight:28;onClicked:root.editConnection(card.modelData.nm.uuid)}
-                                    Label{visible:!card.managed;text:card.modelData.nm&&card.modelData.nm.state?'Managed outside NetworkManager ('+card.modelData.nm.state+')':'Not managed by NetworkManager';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
+                                    Action{visible:card.actionUuid!==''&&!card.external;text:card.connected?'Disconnect':'Connect'+(card.managed?'':' “'+card.actionName+'”');implicitHeight:28;enabled:!actionProc.running&&(card.modelData.kind!=='wifi'||!card.connected);onClicked:root.runAction('connection',[card.connected?'down':'up',card.actionUuid],(card.connected?'Deactivating ':'Activating ')+card.actionName+'…')}
+                                    Action{visible:card.actionUuid!=='';text:'Autoconnect '+(card.s.autoconnect?'on':'off');selected:!!card.s.autoconnect;implicitHeight:28;enabled:!actionProc.running&&card.managed;onClicked:root.runAction('autoconnect',[card.actionUuid,card.s.autoconnect?'no':'yes'],'Updating autoconnect…')}
+                                    Action{visible:card.actionUuid!=='';text:'Edit connection…';implicitHeight:28;onClicked:root.editConnection(card.actionUuid)}
+                                    Label{visible:card.actionUuid==='';text:card.external?'Managed outside NetworkManager ('+card.modelData.nm.state+')':card.profiles.length===0&&card.modelData.kind!=='virtual'?'No saved profile for this device':'Not managed by NetworkManager';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
+                                    Label{visible:!card.managed&&card.actionUuid!=='';text:'saved profile · not active';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
                                     Label{visible:card.managed&&card.modelData.kind==='wifi'&&card.connected;text:'Wi-Fi disconnects live on the Wi-Fi tab';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
                                 }
                             }
@@ -594,7 +619,7 @@ Panel {
                                     Action{text:'Flush cache';implicitHeight:28;enabled:!actionProc.running;onClicked:root.runAction('flushdns',[],'Flushing the resolver cache…')}
                                 }
                             }
-                            Repeater{model:((root.net.dns||{}).links||[]).filter(function(l){return l.name!=='Global'})
+                            Repeater{model:((root.net.dns||{}).links||[]).filter(function(l){return (l.servers||[]).length>0})
                                 Item{required property var modelData;width:dnsCol.width;height:18
                                     Label{id:dnsLine;anchors.fill:parent;elide:Text.ElideRight;font.pixelSize:11;color:dnsMouse.containsMouse?'#dfe4ff':'#b6c0fb'
                                         text:parent.modelData.name+'  ·  answering: '+(parent.modelData.current||'—')+'  ·  servers: '+(parent.modelData.servers||[]).join(', ')+(parent.modelData.domains&&parent.modelData.domains.length?'  ·  domains: '+parent.modelData.domains.join(' '):'')+(parent.modelData.defaultRoute?'  ·  default route':'')+(parent.modelData.dnssec?'  ·  DNSSEC '+parent.modelData.dnssec:'')}
@@ -612,7 +637,7 @@ Panel {
                                 Label{text:'Connectivity: '+String(root.net.connectivity||'unknown')+(Networking.connectivityCheckEnabled?' · NetworkManager checks enabled':' · checks off');width:parent.width/2;horizontalAlignment:Text.AlignRight;color:'#abc4b9';font.pixelSize:11}
                             }
                             Row{spacing:8
-                                Action{text:actionProc.running?'Working…':'10-ping latency burst';accent:'#63c89e';enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('latency',[],'Sending 10 pings to the gateway and 1.1.1.1…')}
+                                Action{text:actionProc.running?'Working…':'10-ping latency burst';accent:'#63c89e';enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('latency',[],'Sending 10 pings to the gateway and '+(root.ping.probe||'1.1.1.1')+'…')}
                                 Action{text:'Public address';accent:'#63c89e';enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('publicip',[],'Asking api.ipify.org for the public address…')}
                                 Action{text:'Re-check connectivity';accent:'#63c89e';enabled:Networking.canCheckConnectivity;onClicked:{Networking.checkConnectivity();root.actionStatus='Asked NetworkManager to re-check connectivity.'}}
                                 Action{text:'Speed test';accent:'#63c89e';enabled:!!root.net.online;onClicked:root.summon('omarchy.speedtest',{connection:Model.isWifi(root.net)?root.wifi.ssid:(root.iface.connection||'Ethernet')})}
@@ -656,17 +681,21 @@ Panel {
                 Rectangle{width:parent.width;height:1;color:'#25343f'}
                 Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10;color:root.stale?'#f0ba82':'#a4b9c3';text:root.actionStatus || (root.stale?'Telemetry is offline. Check the net-pulse user service.': 'LIVE · updated '+Qt.formatTime(new Date(root.net.ts*1000),'h:mm:ss AP')+'  ·  History stays on this machine  ·  Esc closes')}
             }
+            }
         }
     }
     function currentDns() {
         var links=(net.dns||{}).links||[]
         for (var i=0;i<links.length;i++) if(links[i].name===iface.name && links[i].current) return links[i].current
         for (var j=0;j<links.length;j++) if(links[j].name!=='Global' && links[j].servers && links[j].servers.length) return links[j].servers[0]
+        // A host can resolve entirely through systemd-resolved's global servers.
+        for (var k=0;k<links.length;k++) if(links[k].servers && links[k].servers.length) return links[k].current || links[k].servers[0]
         return '—'
     }
     function dnsCount() {
         var links=(net.dns||{}).links||[], n=0
         for (var i=0;i<links.length;i++) if(links[i].name!=='Global') n+=(links[i].servers||[]).length
+        if (n===0) for (var j=0;j<links.length;j++) n+=(links[j].servers||[]).length
         return n
     }
 }

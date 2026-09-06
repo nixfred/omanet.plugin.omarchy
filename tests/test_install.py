@@ -2,6 +2,7 @@ import datetime
 import json
 from pathlib import Path
 import runpy
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -88,20 +89,51 @@ class InstallTests(unittest.TestCase):
 
 
 class GuardTests(unittest.TestCase):
-    def test_config_without_a_bar_layout_is_refused_after_the_backup(self):
+    def refuse(self, home, text):
+        config = home / '.config/omarchy/shell.json'
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(text)
+        with patch.object(Path, 'home', return_value=home), patch('subprocess.run'), \
+             patch('datetime.datetime') as clock, patch('builtins.print'):
+            clock.now.return_value = datetime.datetime(2026, 9, 5, 12, 0, 0, 7)
+            with self.assertRaises(SystemExit):
+                runpy.run_path(str(SOURCE / 'install.py'))
+        # Nothing at all was touched: no backup, no plugin files, no service unit.
+        self.assertEqual(config.read_text(), text)
+        self.assertFalse((home / '.local/state/omarchy/backups').exists())
+        self.assertFalse((home / '.config/omarchy/plugins/nixfred.net-pulse').exists())
+        self.assertFalse((home / '.config/systemd/user/net-pulse.service').exists())
+
+    def test_unusable_config_is_refused_before_anything_is_installed(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.refuse(Path(d), json.dumps({'idle': {}}))
+        with tempfile.TemporaryDirectory() as d:
+            self.refuse(Path(d), '{not json')
+
+    def test_a_bar_edit_made_during_install_is_not_overwritten(self):
+        # The shell saves its own layout changes; the installer must merge into
+        # whatever is on disk when it writes, not the copy it validated earlier.
         with tempfile.TemporaryDirectory() as d:
             home = Path(d)
             config = home / '.config/omarchy/shell.json'
             config.parent.mkdir(parents=True)
-            config.write_text(json.dumps({'idle': {}}))
+            config.write_text(json.dumps({'bar': {'layout': {'right': [{'id': 'omarchy.network'}]}}}))
+            real_copy = shutil.copy2
+
+            def copy_then_edit(src, dst, *a, **kw):
+                out = real_copy(src, dst, *a, **kw)
+                if Path(dst).name == 'manifest.json':
+                    live = json.loads(config.read_text())
+                    live['bar']['layout']['right'].append({'id': 'someone.else'})
+                    config.write_text(json.dumps(live))
+                return out
             with patch.object(Path, 'home', return_value=home), patch('subprocess.run'), \
+                 patch('shutil.copy2', side_effect=copy_then_edit), \
                  patch('datetime.datetime') as clock, patch('builtins.print'):
-                clock.now.return_value = datetime.datetime(2026, 9, 5, 12, 0, 0, 7)
-                with self.assertRaises(SystemExit):
-                    runpy.run_path(str(SOURCE / 'install.py'))
-            # The file is left exactly as found, and the backup still exists.
-            self.assertEqual(json.loads(config.read_text()), {'idle': {}})
-            self.assertEqual(len(list((home / '.local/state/omarchy/backups').iterdir())), 1)
+                clock.now.return_value = datetime.datetime(2026, 9, 5, 12, 0, 0, 11)
+                runpy.run_path(str(SOURCE / 'install.py'))
+            right = json.loads(config.read_text())['bar']['layout']['right']
+            self.assertEqual([e['id'] for e in right], ['nixfred.net-pulse', 'someone.else'])
 
 
 if __name__ == '__main__':

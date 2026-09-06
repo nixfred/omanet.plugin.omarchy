@@ -14,6 +14,7 @@ import time
 STATE = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'net-pulse'
 ENV_KEYS = {'HERDR_ENV', 'HERDR_SOCKET_PATH', 'HERDR_WORKSPACE_ID', 'HERDR_TAB_ID', 'HERDR_PANE_ID', 'TMUX', 'TMUX_PANE', 'BOOMUX_SHELL_ID'}
 PROBE = '1.1.1.1'
+PROBE6 = '2606:4700:4700::1111'
 PROVIDERS = ('DHCP', 'Cloudflare', 'Google')
 BANDS = ('auto', '2.4', '5', '6')
 UUID_RE = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
@@ -107,12 +108,19 @@ def rates(previous, current, elapsed):
 
 
 def default_route():
-    for r in run_json(['ip', '-j', 'route', 'get', PROBE]):
-        if isinstance(r, dict) and r.get('dev'):
-            return {'iface': r['dev'], 'gateway': r.get('gateway', ''), 'source': r.get('prefsrc', '')}
+    """The interface carrying the default route, and the probe address that suits it.
+
+    IPv4 is preferred when both work; a host with only IPv6 connectivity is
+    online and must not be reported as offline.
+    """
+    for probe in (PROBE, PROBE6):
+        for r in run_json(['ip', '-j', 'route', 'get', probe]):
+            if isinstance(r, dict) and r.get('dev'):
+                return {'iface': r['dev'], 'gateway': r.get('gateway', ''), 'source': r.get('prefsrc', ''), 'probe': probe}
     for r in run_json(['ip', '-j', 'route']):
         if isinstance(r, dict) and r.get('dst') == 'default' and r.get('dev'):
-            return {'iface': r['dev'], 'gateway': r.get('gateway', ''), 'source': r.get('prefsrc', '')}
+            return {'iface': r['dev'], 'gateway': r.get('gateway', ''), 'source': r.get('prefsrc', ''),
+                    'probe': PROBE6 if ':' in str(r.get('gateway', '')) else PROBE}
     return {}
 
 
@@ -281,6 +289,22 @@ def nm_connection(uuid, raw=None):
             'addresses4': kv.get('ipv4.addresses', ''), 'gateway4': kv.get('ipv4.gateway', ''), 'dns4': kv.get('ipv4.dns', ''),
             'ignoreAutoDns': kv.get('ipv4.ignore-auto-dns', '') == 'yes', 'band': kv.get('802-11-wireless.band', ''),
             'ethMtu': kv.get('802-3-ethernet.mtu', ''), 'wakeOnLan': kv.get('802-3-ethernet.wake-on-lan', '')}
+
+
+def nm_saved(raw=None):
+    """Saved profiles, so a disconnected device can still offer a way back."""
+    out = []
+    for line in (raw if raw is not None else run(['nmcli', '-t', '-f', 'UUID,NAME,TYPE,DEVICE', 'con', 'show'])).splitlines():
+        f = nm_split(line)
+        if len(f) >= 4 and re.fullmatch(UUID_RE, f[0]):
+            out.append({'uuid': f[0], 'name': f[1], 'type': f[2], 'device': f[3]})
+    return out
+
+
+def profiles_for(saved, name, kind):
+    """Profiles that could be activated on this device: bound to it, or unbound and of its type."""
+    family = {'ethernet': '802-3-ethernet', 'wifi': '802-11-wireless'}.get(kind, '')
+    return [p for p in saved if p['device'] == name or (not p['device'] and family and p['type'] == family)][:4]
 
 
 def nm_general(raw=None):
@@ -601,9 +625,14 @@ def db_open():
 
 
 def record(db, ts, rx, tx, latency, signal, iface, span=HISTORY_INTERVAL):
+    newest = db.execute('SELECT MAX(ts) FROM samples').fetchone()[0]
     db.execute('INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?,?,?)',
                (ts, rx, tx, latency, signal, iface, read('/proc/sys/kernel/random/boot_id').strip(), span))
-    db.execute('DELETE FROM samples WHERE ts < ?', (ts - 7 * 86400,))
+    # Retention is destructive and irreversible, so it only runs when the new
+    # timestamp is continuous with what is already stored. A clock corrected
+    # forward by a week would otherwise erase the week it skipped over.
+    if newest is None or ts - newest < 86400:
+        db.execute('DELETE FROM samples WHERE ts < ?', (ts - 7 * 86400,))
     db.commit()
 
 
@@ -638,7 +667,8 @@ def daemon():
         except BlockingIOError:
             return
         db = db_open()
-        cache = {'devices': {}, 'general': {}, 'addresses': {}, 'connections': {}, 'networks': [], 'band': {}, 'dns': [], 'provider': '', 'routes': [], 'talkers': {'rows': [], 'total': 0, 'anonymous': 0, 'listening': 0}}
+        cache = {'devices': {}, 'general': {}, 'addresses': {}, 'connections': {}, 'networks': [], 'band': {}, 'dns': [], 'provider': '', 'routes': [], 'saved': [],
+                 'talkers': {'rows': [], 'total': 0, 'anonymous': 0, 'listening': 0}}
         jobs = {'medium': (6, medium_jobs), 'slow': (15, slow_jobs), 'talkers': (9, lambda c: c.update(talkers=talkers()))}
         due = {k: 0 for k in jobs}
         counters, counted_at, tcp_prev, tcp_at = None, 0, None, 0
@@ -668,7 +698,7 @@ def daemon():
                         due[name] = start + interval
                 route = default_route()
                 iface = route.get('iface', '')
-                for key, host in (('gateway', route.get('gateway', '')), ('internet', PROBE if iface else '')):
+                for key, host in (('gateway', route.get('gateway', '')), ('internet', route.get('probe', PROBE) if iface else '')):
                     done, value = ping_collect(pings[key])
                     if done:
                         if pings[key] is not None:
@@ -707,6 +737,7 @@ def medium_jobs(cache):
     cache['band'] = band_status()
     wanted = {d['uuid'] for d in cache['devices'].values() if d.get('uuid')}
     cache['connections'] = {u: nm_connection(u) for u in wanted}
+    cache['saved'] = nm_saved()
 
 
 def slow_jobs(cache):
@@ -729,14 +760,18 @@ def snapshot(cache, counters, speed, route, samples, tcp, tcp_rates):
         entry = {'name': name, 'kind': kind, 'active': name == iface, 'mac': a.get('mac', ''), 'mtu': a.get('mtu', 0), 'operstate': a.get('operstate', ''), 'up': a.get('up', False),
                  'addrs4': a.get('addrs4', []), 'addrs6': a.get('addrs6', []), 'rates': speed.get(name, {'rx': 0, 'tx': 0}), 'stats': counters[name],
                  'nm': {'type': dev.get('type', ''), 'state': dev.get('state', ''), 'connection': dev.get('connection', ''), 'uuid': dev.get('uuid', '')},
-                 'settings': cache['connections'].get(dev.get('uuid', ''), {})}
+                 'settings': cache['connections'].get(dev.get('uuid', ''), {}),
+                 'profiles': profiles_for(cache.get('saved', []), name, kind)}
         entry.update(link_info(name))
         interfaces.append(entry)
     interfaces.sort(key=lambda e: (not e['active'], {'ethernet': 0, 'wifi': 1, 'tunnel': 2, 'bridge': 3}.get(e['kind'], 4), e['name']))
     active = next((e for e in interfaces if e['active']), {})
     wifi = wifi_link(iface) if iface and active.get('kind') == 'wifi' else {}
     if wifi:
-        used = next((n for n in cache['networks'] if n['inUse']), None)
+        bssid = str(wifi.get('bssid', '')).lower()
+        used = next((n for n in cache['networks'] if bssid and str(n.get('bssid', '')).lower() == bssid), None)
+        if used is None:
+            used = next((n for n in cache['networks'] if n['inUse']), None)
         if used:
             wifi['security'] = used['security']
             wifi['quality'] = used['signal']
@@ -750,7 +785,8 @@ def snapshot(cache, counters, speed, route, samples, tcp, tcp_rates):
                       'connection': active.get('nm', {}).get('connection', ''), 'uuid': active.get('nm', {}).get('uuid', ''), 'settings': active.get('settings', {})},
             'rates': active.get('rates', {'rx': 0, 'tx': 0}), 'totals': active.get('stats', {}),
             'wifi': wifi, 'band': cache['band'], 'networks': cache['networks'],
-            'ping': {'gateway': gateway['avg'], 'internet': internet['avg'], 'loss': internet['loss'], 'gatewaySamples': gateway['samples'], 'internetSamples': internet['samples']},
+            'ping': {'gateway': gateway['avg'], 'internet': internet['avg'], 'loss': internet['loss'],
+                     'probe': route.get('probe', PROBE), 'gatewaySamples': gateway['samples'], 'internetSamples': internet['samples']},
             'interfaces': interfaces, 'talkers': cache['talkers'], 'dns': {'provider': cache['provider'], 'links': cache['dns']}, 'routes': cache['routes'],
             'tcp': tcp, 'tcpRates': tcp_rates, 'forwarding': read('/proc/sys/net/ipv4/ip_forward').strip() == '1'}
 
@@ -780,7 +816,7 @@ def action_latency():
     route = default_route()
     if not route.get('iface'):
         raise RuntimeError('No default route; nothing to measure.')
-    hosts = [h for h in (route.get('gateway', ''), PROBE) if h]
+    hosts = [h for h in (route.get('gateway', ''), route.get('probe', PROBE)) if h]
     r = latency_burst(hosts)
     parts = []
     for host in hosts:
