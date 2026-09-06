@@ -24,6 +24,10 @@ unit.parent.mkdir(parents=True,exist_ok=True)
 shutil.copy2(source/'net-pulse.service',unit)
 # Read after copying, minimizing the time between config read and atomic write.
 data=json.loads(config.read_text())
+# A config without a bar layout is not something to guess at; the backup is
+# already written, so say so plainly instead of raising a KeyError.
+if not isinstance(data.get('bar'),dict) or not isinstance(data['bar'].get('layout'),dict):
+    raise SystemExit('shell.json has no bar.layout; nothing was changed. Backup: '+str(backup))
 layout=data['bar']['layout']
 entry={'id':'nixfred.net-pulse','displayMode':0,'animated':True}
 def ident(e):return e.get('id') if isinstance(e,dict) else e

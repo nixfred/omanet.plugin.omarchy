@@ -120,18 +120,20 @@ function isWifi(m) { return !!(m && m.iface && m.iface.kind === 'wifi' && m.wifi
 function readout(m, mode) {
     if (!m || !m.warm) return '—'
     if (!m.online) return 'offline'
-    if (mode === 1) return isWifi(m) ? dbm(m.wifi.signal) : mbit(m.iface.speed)
-    if (mode === 2) return ms(has(m.ping.internet) ? m.ping.internet : m.ping.gateway)
-    if (mode === 3) return isWifi(m) ? m.wifi.ssid : (m.iface.connection || m.iface.name || '—')
-    if (mode === 4) return (m.iface.addrs4 && m.iface.addrs4.length ? m.iface.addrs4[0] : m.iface.addrs6 && m.iface.addrs6.length ? m.iface.addrs6[0] : 'no address').split('/')[0]
+    var iface = m.iface || {}, ping = m.ping || {}
+    if (mode === 1) return isWifi(m) ? dbm(m.wifi.signal) : mbit(iface.speed)
+    if (mode === 2) return ms(has(ping.internet) ? ping.internet : ping.gateway)
+    if (mode === 3) return isWifi(m) ? m.wifi.ssid : (iface.connection || iface.name || '—')
+    if (mode === 4) return bare((iface.addrs4 && iface.addrs4.length ? iface.addrs4[0] : iface.addrs6 && iface.addrs6.length ? iface.addrs6[0] : 'no address'))
     return '↓ '+rate(m.rates ? m.rates.rx : 0)
 }
 function modeTag(m, mode) {
     if (!m || !m.warm || !m.online) return 'NETWORK'
+    var iface = m.iface || {}, ping = m.ping || {}
     if (mode === 1) return isWifi(m) ? whole(m.wifi.quality)+' SIGNAL' : 'LINK SPEED'
-    if (mode === 2) return has(m.ping.internet) ? 'INTERNET' : 'GATEWAY'
-    if (mode === 3) return isWifi(m) ? (m.wifi.band || band(m.wifi.freq))+(m.wifi.channel ? ' · CH '+m.wifi.channel : '') : kindName(m.iface.kind).toUpperCase()
-    if (mode === 4) return String(m.iface.name || '').toUpperCase()
+    if (mode === 2) return has(ping.internet) ? 'INTERNET' : 'GATEWAY'
+    if (mode === 3) return isWifi(m) ? (m.wifi.band || band(m.wifi.freq))+(m.wifi.channel ? ' · CH '+m.wifi.channel : '') : kindName(iface.kind).toUpperCase()
+    if (mode === 4) return String(iface.name || '').toUpperCase()
     return '↑ '+rate(m.rates ? m.rates.tx : 0)
 }
 function modeName(mode) { return ['Throughput', 'Signal / link speed', 'Latency', 'Network name', 'IP address'][mode] || 'Throughput' }

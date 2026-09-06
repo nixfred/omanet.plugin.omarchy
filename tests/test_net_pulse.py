@@ -200,6 +200,25 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(net.history(db, 3600, now)['count'], 4)
             db.close()
 
+    def test_range_totals_count_only_the_time_actually_recorded(self):
+        # A sparse bucket used to be multiplied by its whole width, inventing
+        # traffic for every gap: the 7-day view read double the real total.
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1000000
+            for i in range(4):
+                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?)',
+                           (now - 3000 + i * net.HISTORY_INTERVAL, 1000.0, 500.0, 10.0, 70.0, 'wlp2s0', 'a'))
+            db.commit()
+            h = net.history(db, 604800, now)
+            # Four samples of 1000 B/s, each standing for 15 seconds.
+            self.assertEqual(h['count'], 4)
+            self.assertEqual(h['totalRx'], 4 * 1000.0 * net.HISTORY_INTERVAL)
+            self.assertEqual(h['totalTx'], 4 * 500.0 * net.HISTORY_INTERVAL)
+            # The same samples must total the same however coarsely they are bucketed.
+            self.assertEqual(net.history(db, 3600, now)['totalRx'], h['totalRx'])
+            db.close()
+
     def test_absent_latency_is_stored_as_null(self):
         with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
             db = net.db_open()

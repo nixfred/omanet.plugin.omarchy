@@ -35,6 +35,7 @@ Item {
             var c = getContext('2d'), w = width, h = height
             c.reset(); c.clearRect(0,0,w,h)
             var cx=w/2, cy=h/2, size=Math.min(w,h), body=size*(root.compact?0.58:0.47)
+            if (size <= 0 || body <= 0) return
             var x=cx-body/2, y=cy-body/2, t=root.phase*Math.PI*2
             var lvl=Model.clamp(root.shownLevel,0,1), act=Model.clamp(root.activity,0,1)
             var aura=c.createRadialGradient(cx,cy,body*0.1,cx,cy,size*0.5)

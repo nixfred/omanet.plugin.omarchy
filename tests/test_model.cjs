@@ -62,4 +62,12 @@ assert.equal(ctx.niceMax(1800000),5000000);
 assert.equal(ctx.niceMs(0),20);
 assert.equal(ctx.niceMs(43),50);
 
+// A partial snapshot must not throw on a key it happens to be missing.
+for (const mode of [0,1,2,3,4]) {
+  assert.doesNotThrow(()=>ctx.readout({warm:true,online:true},mode));
+  assert.doesNotThrow(()=>ctx.modeTag({warm:true,online:true},mode));
+}
+assert.equal(ctx.readout({warm:true,online:true},4),'no address');
+assert.equal(ctx.bare('100.101.176.48/32'),'100.101.176.48');
+
 console.log('Readouts, offline and cold telemetry, decimal units, health scoring and graph ceilings pass.');

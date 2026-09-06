@@ -87,5 +87,22 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(saved['bar']['layout']['right'], [{'id': 'omarchy.network'}])
 
 
+class GuardTests(unittest.TestCase):
+    def test_config_without_a_bar_layout_is_refused_after_the_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            config = home / '.config/omarchy/shell.json'
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({'idle': {}}))
+            with patch.object(Path, 'home', return_value=home), patch('subprocess.run'), \
+                 patch('datetime.datetime') as clock, patch('builtins.print'):
+                clock.now.return_value = datetime.datetime(2026, 9, 5, 12, 0, 0, 7)
+                with self.assertRaises(SystemExit):
+                    runpy.run_path(str(SOURCE / 'install.py'))
+            # The file is left exactly as found, and the backup still exists.
+            self.assertEqual(json.loads(config.read_text()), {'idle': {}})
+            self.assertEqual(len(list((home / '.local/state/omarchy/backups').iterdir())), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

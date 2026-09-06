@@ -31,6 +31,7 @@ Panel {
     readonly property string chipKind: stale || !net.online ? 'offline' : (Model.isWifi(net) ? 'wifi' : 'ethernet')
     readonly property real activity: Model.clamp(((net.rates||{}).rx||0)/8e6, 0, 1)
     readonly property var rows: (net.talkers||{}).rows || []
+    onRowsChanged: page = Math.min(page, Math.max(0, Math.ceil(rows.length/8)-1))
     readonly property var chart: histories[String(range)] || {points:[],seconds:range,now:now,bucket:15,count:0,peakRx:0,peakTx:0,peakLatency:0}
     readonly property var wifi: net.wifi || {}
     readonly property var ping: net.ping || {}
@@ -50,6 +51,7 @@ Panel {
     property string passwordText: ''
     property string identityText: ''
     readonly property var wifiRows: mergeWifi(net.networks || [], nmNetworks)
+    onWifiRowsChanged: wifiPage = Math.min(wifiPage, Math.max(0, Math.ceil(wifiRows.length/8)-1))
 
     function findDevice(type) {
         var fallback=null

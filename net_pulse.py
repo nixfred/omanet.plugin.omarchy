@@ -18,6 +18,7 @@ PROVIDERS = ('DHCP', 'Cloudflare', 'Google')
 BANDS = ('auto', '2.4', '5', '6')
 UUID_RE = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 PING_WINDOW = 24
+HISTORY_INTERVAL = 15   # seconds between recorded samples; each sample stands for this long
 
 
 def read(path):
@@ -580,12 +581,14 @@ def record(db, ts, rx, tx, latency, signal, iface):
 
 def history(db, seconds, now=None):
     now = now or time.time()
-    bucket = max(15, seconds / 240)
+    bucket = max(HISTORY_INTERVAL, seconds / 240)
     # Boot is part of each bucket; never connect a line across a reboot.
     rows = db.execute('SELECT MIN(ts), AVG(rx), MAX(rx), AVG(tx), AVG(latency), AVG(signal), COUNT(*), boot FROM samples WHERE ts>=? AND ts<=? GROUP BY CAST(ts/? AS INTEGER), boot ORDER BY MIN(ts)', (now - seconds, now, bucket)).fetchall()
     return {'seconds': seconds, 'bucket': bucket, 'now': now, 'points': rows, 'count': sum(r[6] for r in rows),
             'peakRx': max((r[2] for r in rows), default=0), 'peakTx': max((r[3] or 0 for r in rows), default=0),
-            'peakLatency': max((r[4] or 0 for r in rows), default=0), 'totalRx': sum((r[1] or 0) * bucket for r in rows), 'totalTx': sum((r[3] or 0) * bucket for r in rows)}
+            'peakLatency': max((r[4] or 0 for r in rows), default=0),
+            'totalRx': sum((r[1] or 0) * r[6] * HISTORY_INTERVAL for r in rows),
+            'totalTx': sum((r[3] or 0) * r[6] * HISTORY_INTERVAL for r in rows)}
 
 
 def atomic(name, value):
@@ -646,7 +649,7 @@ def daemon():
                         acc['latency'].append(m['ping']['internet'] if m['ping']['internet'] >= 0 else None)
                     if m['wifi'].get('quality') is not None:
                         acc['signal'].append(m['wifi']['quality'])
-                if start - last_history >= 15:
+                if start - last_history >= HISTORY_INTERVAL:
                     if iface and acc['rx']:
                         lat = [v for v in acc['latency'] if v is not None]
                         record(db, m['ts'], sum(acc['rx']) / len(acc['rx']), sum(acc['tx']) / len(acc['tx']), sum(lat) / len(lat) if lat else None,
