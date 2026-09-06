@@ -251,6 +251,7 @@ Panel {
         property string hint:''
         property string copyText:''
         property string copyWhat:''
+        property int elideMode: Text.ElideRight
         readonly property bool copyable: copyText !== ''
         radius:12
         color:stat.copyable&&statArea.containsMouse?'#17262f':'#111e28'
@@ -259,8 +260,8 @@ Panel {
         Column {anchors.fill:parent;anchors.margins:12;spacing:5
             Label{text:stat.label;font.pixelSize:10;font.letterSpacing:1}
             // Long addresses shrink to fit rather than losing their last octets.
-            Heading{text:stat.value;font.pixelSize:20;width:parent.width;elide:Text.ElideRight
-                fontSizeMode:Text.HorizontalFit;minimumPixelSize:11}
+            Heading{text:stat.value;font.pixelSize:20;width:parent.width;elide:stat.elideMode
+                fontSizeMode:Text.HorizontalFit;minimumPixelSize:10}
             Label{text:stat.hint;font.pixelSize:10;width:parent.width;elide:Text.ElideRight}
         }
         Text{visible:stat.copyable&&statArea.containsMouse;text:'⧉';color:root.tint;font.pixelSize:12
@@ -524,7 +525,8 @@ Panel {
                                     Stat{width:(parent.width-24)/4;height:66;label:(card.modelData.addrs6||[]).length?'IPv6':'TOTALS'
                                         value:(card.modelData.addrs6||[]).length?Model.bare(card.modelData.addrs6[0]):'↓ '+Model.size(card.modelData.stats.rx)
                                         hint:(card.modelData.addrs6||[]).length?'↓ '+Model.size(card.modelData.stats.rx)+' ↑ '+Model.size(card.modelData.stats.tx):'↑ '+Model.size(card.modelData.stats.tx)+' · '+Model.count(card.modelData.stats.rxPackets+card.modelData.stats.txPackets)+' packets'
-                                        copyText:(card.modelData.addrs6||[]).length?Model.bare(card.modelData.addrs6[0]):'';copyWhat:card.modelData.name+' IPv6'}
+                                        copyText:(card.modelData.addrs6||[]).length?Model.bare(card.modelData.addrs6[0]):'';copyWhat:card.modelData.name+' IPv6'
+                                        elideMode:(card.modelData.addrs6||[]).length?Text.ElideMiddle:Text.ElideRight}
                                     Stat{width:(parent.width-24)/4;height:66;label:'ERRORS · DROPS';value:Model.count(card.modelData.stats.rxErrors+card.modelData.stats.txErrors)+'  ·  '+Model.count(card.modelData.stats.rxDropped+card.modelData.stats.txDropped);hint:'rx '+card.modelData.stats.rxErrors+'/'+card.modelData.stats.rxDropped+' · tx '+card.modelData.stats.txErrors+'/'+card.modelData.stats.txDropped}
                                 }
                                 Label{visible:card.managed;width:parent.width;elide:Text.ElideRight;font.pixelSize:10;color:'#a4b9c3'
