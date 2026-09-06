@@ -54,13 +54,13 @@ The **Network lab** tab holds every resolver systemd-resolved is using per link,
 - Animated chip that knows what it is plugged into: signal arcs on Wi-Fi, a wired jack with a running link light on Ethernet, a broken ring when there is no route. Packet speed follows real throughput.
 - Continuous 1-hour, 24-hour and 7-day history of download, upload, latency and signal, with the per-bucket download peak as a faint envelope and hover readings. Missing history is left blank; shutdowns and recording gaps break the trace.
 - Wi-Fi that reads like a radio should: dBm and quality, channel and width, the band, negotiated rates each way, Wi-Fi 4/5/6/7, transmit power, retries, failures and beacon loss, and how long this association has held.
-- Connect, disconnect and forget networks; WPA and WPA3 passphrases and 802.1X enterprise logins; pin the 2.4, 5 or 6 GHz band or hand it back to automatic; turn the radio off; share the current network as a QR code.
+- Connect, disconnect and forget networks; WPA and WPA3 passphrases; pin the 2.4, 5 or 6 GHz band or hand it back to automatic; turn the radio off; share the current network as a QR code. An enterprise (802.1X) network opens the system connection editor, which is where its CA certificate, EAP method and server name belong.
 - Every interface with its own card, including tunnels like Tailscale and WireGuard, and the saved NetworkManager profile behind it.
 - Processes ranked by open sockets with their remote endpoints classified as LAN, tailnet or internet.
 - Click any address — yours, the gateway, the resolver, a route's next hop, an interface's IPv4 or IPv6 — to copy it to the clipboard.
 - DNS provider switching through `omarchy-dns` and a resolver cache flush, both the same paths the stock widget uses.
 
-There are no process termination, firewall, route, sysctl or privileged tuning actions. Processes and window identities are revalidated on every focus click. Session routing uses argument arrays and validated IDs, never interpolated shell commands. DNS provider and band names are checked against fixed lists and connection IDs against a UUID pattern. Passphrases travel over D-Bus, or over stdin for enterprise profiles, and never appear in a command line or in this plugin's state.
+There are no process termination, firewall, route, sysctl or privileged tuning actions. Processes and window identities are revalidated on every focus click. Session routing uses argument arrays and validated IDs, never interpolated shell commands. DNS provider and band names are checked against fixed lists and connection IDs against a UUID pattern. Passphrases travel over D-Bus and never appear in a command line or in this plugin's state. This plugin does not create 802.1X profiles: writing their password through nmcli's interactive editor would persist it to the shell's nmcli history, and a profile built without a CA certificate and server-name check can be harvested by a rogue access point, so that setup is handed to the system editor instead.
 
 ## Install
 
@@ -73,6 +73,8 @@ python3 install.py
 ```
 
 Installs under `~/.config/omarchy/plugins/nixfred.net-pulse`, takes the stock `omarchy.network` widget's slot in the bar (appending to the far right if that widget is not present), and enables `net-pulse.service` for the graphical session. Existing files and the bar layout are backed up under `~/.local/state/omarchy/backups/net-pulse-TIMESTAMP/`.
+
+Throughput is sampled and timestamped at the counter read, so a slow collection pass cannot be charged to the interval. Each history sample stores the span it actually covered, and range totals are the sum of rate times span at full resolution, so bucketing cannot change the answer. Retention only prunes when a new timestamp is continuous with what is stored, so a clock corrected forward cannot erase real history.
 
 The recorder runs independently of the shell and popup: throughput and pings every 2 seconds, NetworkManager and Wi-Fi state every 6, sockets every 9, DNS and routes every 15, history every 15. SQLite retains seven days (up to 40,320 samples), downsampled to ~240 points per displayed range; per-bucket peaks are retained. State is private (`0700` directory / `0600` files) in `$XDG_STATE_HOME/net-pulse` or `~/.local/state/net-pulse`. History stores aggregate metrics only — no addresses, host names or process identities. The latest snapshot contains process names, PIDs, window titles and remote addresses, and is replaced, not logged. Closed panels stop their large animations, and Wi-Fi scanning runs only while the Wi-Fi tab is open.
 
@@ -99,7 +101,7 @@ Disable with `omarchy plugin disable nixfred.net-pulse` and `systemctl --user di
 
 Throughput is the delta of `/proc/net/dev` byte counters over the sampling interval, so it counts framed bytes on the interface, not payload. Units are decimal: 1 MB/s is 1,000,000 bytes per second, matching how link rates and speed tests are quoted. A counter reset or a newly appeared interface reads zero rather than a spike.
 
-Latency is a single `ping` per probe cycle to the default gateway and to 1.1.1.1, averaged over the last 24 samples. A timed-out probe is kept as a loss, not dropped, so the loss percentage is real; `null` means no sample has come back yet, which is different from a timeout. The gateway probe measures your local link, the internet probe measures the whole path.
+Latency is a single `ping` per probe cycle to the default gateway and to a public resolver, averaged over the last 24 samples. The probe follows the address family carrying the default route, so an IPv6-only host is measured over IPv6 rather than reported as offline. A timed-out probe is kept as a loss, not dropped, so the loss percentage is real; `null` means no sample has come back yet, which is different from a timeout. The gateway probe measures your local link, the internet probe measures the whole path.
 
 Wi-Fi signal in dBm comes from `iw`; the 0–100 quality is NetworkManager's own figure for the associated access point. Negotiated rates are the current PHY rates, which is the ceiling of what the radio could carry, not what you are using. Nearby networks are grouped by name: one row can stand for several access points, and its channel, band and rate come from the strongest one.
 
