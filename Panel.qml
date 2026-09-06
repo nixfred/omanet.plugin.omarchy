@@ -49,7 +49,6 @@ Panel {
     property string wifiKind: ''
     property string passwordSsid: ''
     property string passwordText: ''
-    property string identityText: ''
     readonly property var wifiRows: mergeWifi(net.networks || [], nmNetworks)
     onWifiRowsChanged: wifiPage = Math.min(wifiPage, Math.max(0, Math.ceil(wifiRows.length/8)-1))
 
@@ -98,18 +97,20 @@ Panel {
         n.connectWithPsk(psk); passwordText=''
         wifiTimeout.restart()
     }
-    function wifiConnectEnterprise(ssid, identity, psk) {
-        if(wifiKind || !psk || !identity || eap.running) return
-        wifiSsid=ssid; wifiKind='connect'; actionStatus='Connecting to '+ssid+' as '+identity+'…'
-        eap.secret=psk; passwordText=''
-        eap.command=['bash','-c',eap.script,'nmcli-eap',ssid,identity]
-        eap.running=true
-        wifiTimeout.restart()
+    // 802.1X needs a CA certificate, an EAP method and a server-name check to be
+    // safe, and its password must never reach a command line. That belongs in the
+    // system editor, which handles all three; this panel only opens it.
+    function setUpEnterprise(ssid) {
+        if(!root.bar) return
+        actionStatus='Opening the connection editor for '+ssid+'. Enterprise networks need their CA certificate.'
+        root.bar.run('omarchy-launch-floating-terminal-with-presentation '+Util.shellQuote('nmtui connect'))
+        root.close()
     }
     function rowClicked(row) {
         if(!row.actionable || row.hidden || wifiKind) { if(row.hidden) actionStatus='Hidden networks need their name; add them with nmtui.'; return }
         if(row.connected){ wifiAct('disconnect',row.ssid); return }
-        if(needsPassphrase(row) && !row.known){ passwordSsid=row.ssid; passwordText=''; identityText=''; return }
+        if(Model.security(row.security)==='Enterprise' && !row.known){ setUpEnterprise(row.ssid); return }
+        if(needsPassphrase(row) && !row.known){ passwordSsid=row.ssid; passwordText=''; return }
         wifiAct('connect',row.ssid)
     }
     function wifiDone(message) { wifiTimeout.stop(); wifiKind=''; wifiSsid=''; passwordSsid=''; actionStatus=message }
@@ -187,15 +188,6 @@ Panel {
         ignoreUnknownSignals: true
         function onConnectionFailed(reason) { root.wifiFailed(reason) }
     }
-    // 802.1X profiles: the password goes over stdin into nmcli's scripted editor. argv is world-readable; stdin is not.
-    Process {
-        id:eap
-        property string secret:''
-        readonly property string script: "u=$(uuidgen); IFS= read -r pw; nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\" wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2 802-1x.identity \"$2\" 802-1x.auth-timeout 8 >/dev/null && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null && nmcli connection up uuid \"$u\" || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
-        stdinEnabled:true
-        onStarted:{ write(secret+'\n'); secret='' }
-        onExited:function(code){ if(code!==0 && root.wifiKind==='connect') root.wifiDone('Enterprise login to '+root.wifiSsid+' was refused.') }
-    }
     Process {
         id:actionProc
         stdout:StdioCollector { onStreamFinished:{try{var r=JSON.parse(text);root.actionStatus=r.error || r.message || 'Done';if(!r.error && r.message && r.message.indexOf('Focused ')===0)root.close()}catch(e){root.actionStatus='Action could not complete.'}} }
@@ -224,8 +216,8 @@ Panel {
             NetChip {compact:true;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:!root.stale && root.setting('animated',true)}
             Column {
                 anchors.verticalCenter:parent.verticalCenter
-                Text {text:root.stale?'—':Model.readout(root.net,root.mode);color:root.barForeground;font.family:Style.font.family;font.pixelSize:12;font.bold:true}
-                Text {text:Model.modeTag(root.net,root.mode);color:root.tint;font.pixelSize:7;font.letterSpacing:0.6}
+                Text {text:root.stale?'—':Model.readout(root.net,root.mode);color:root.barForeground;font.family:Style.font.family;font.pixelSize:12;font.bold:true;textFormat:Text.PlainText}
+                Text {text:Model.modeTag(root.net,root.mode);color:root.tint;font.pixelSize:7;font.letterSpacing:0.6;textFormat:Text.PlainText}
             }
         }
     }
@@ -266,7 +258,7 @@ Panel {
                 fontSizeMode:Text.HorizontalFit;minimumPixelSize:10}
             Label{text:stat.hint;font.pixelSize:10;width:parent.width;elide:Text.ElideRight}
         }
-        Text{visible:stat.copyable&&statArea.containsMouse;text:'⧉';color:root.tint;font.pixelSize:12
+        Text{visible:stat.copyable&&statArea.containsMouse;text:'⧉';color:root.tint;font.pixelSize:12;textFormat:Text.PlainText
             anchors.right:parent.right;anchors.top:parent.top;anchors.rightMargin:8;anchors.topMargin:6}
         MouseArea{id:statArea;anchors.fill:parent;hoverEnabled:stat.copyable;enabled:stat.copyable
             cursorShape:Qt.PointingHandCursor;onClicked:root.copy(stat.copyText,stat.copyWhat)}
@@ -354,12 +346,12 @@ Panel {
                             Label{text:'DOWNLOAD  ·  UPLOAD';font.pixelSize:11;font.letterSpacing:2}
                             Row {spacing:14
                                 Text {text:root.stale||!root.net.online?'—':Model.rate((root.net.rates||{}).rx);color:'#f4fafc';font.pixelSize:42;font.weight:Font.Light}
-                                Text {text:root.stale||!root.net.online?'':'↑ '+Model.rate((root.net.rates||{}).tx);color:'#8d9dff';font.pixelSize:20;font.weight:Font.Light;anchors.bottom:parent.bottom;anchors.bottomMargin:8}
+                                Text {text:root.stale||!root.net.online?'':'↑ '+Model.rate((root.net.rates||{}).tx);color:'#8d9dff';font.pixelSize:20;font.weight:Font.Light;anchors.bottom:parent.bottom;anchors.bottomMargin:8;textFormat:Text.PlainText}
                             }
                             Label{text:root.stale?'Waiting for the net-pulse service.':!root.net.online?'No default route. Nothing is carrying traffic to the internet.':(Model.isWifi(root.net)?root.wifi.ssid+'  ·  '+(root.wifi.band||'')+(root.wifi.channel?' channel '+root.wifi.channel:''):(root.iface.connection||Model.kindName(root.iface.kind)))+'  ·  '+root.iface.name+'  ·  '+((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]||'no address').split('/')[0];color:'#c4d6dc';width:parent.width;elide:Text.ElideRight}
                             Label{text:root.net.online?'Gateway '+(root.iface.gateway||'—')+' · '+Model.ms(root.ping.gateway)+'    Internet 1.1.1.1 · '+Model.ms(root.ping.internet)+(Model.num(root.ping.loss)>0?'  ·  '+Model.whole(root.ping.loss)+' loss':'')+'    ·  click any address to copy it':'Pings pause until a route appears.';font.pixelSize:10}
                         }
-                        Text {anchors.right:parent.right;anchors.rightMargin:20;anchors.top:parent.top;anchors.topMargin:22;horizontalAlignment:Text.AlignRight;color:Qt.alpha('#edf7fa',0.5);font.pixelSize:15
+                        Text {anchors.right:parent.right;anchors.rightMargin:20;anchors.top:parent.top;anchors.topMargin:22;horizontalAlignment:Text.AlignRight;color:Qt.alpha('#edf7fa',0.5);font.pixelSize:15;textFormat:Text.PlainText
                             text:root.stale||!root.net.online?'':Model.isWifi(root.net)?Model.whole(root.wifi.quality)+'\nsignal':Model.mbit(root.iface.speed)+'\nlink'}
                     }
                     Row {width:parent.width;spacing:10
@@ -457,9 +449,11 @@ Panel {
                             readonly property bool prompting:root.passwordSsid!==''&&root.passwordSsid===modelData.ssid
                             readonly property bool busy:root.wifiKind!==''&&root.wifiSsid===modelData.ssid
                             readonly property bool enterprise:Model.security(modelData.security)==='Enterprise'
-                            width:mainColumn.width;height:prompting?(enterprise?128:92):58;radius:10
+                            width:mainColumn.width;height:prompting?92:58;radius:10
                             color:wmouse.containsMouse||prompting?'#1d303b':'#111e28';border.color:modelData.connected?root.tint:wmouse.containsMouse?'#536a76':'#263844'
                             Behavior on height{NumberAnimation{duration:140}}
+                            // Declared first so every button below sits above it.
+                            MouseArea{id:wmouse;x:0;y:0;width:parent.width;height:58;hoverEnabled:true;cursorShape:Qt.PointingHandCursor;onClicked:root.rowClicked(wrow.modelData)}
                             Rectangle{x:12;y:44;width:(parent.width-24)*Model.clamp(wrow.modelData.signal/100,0,1);height:2;radius:1;color:wrow.modelData.connected?root.tint:'#4d6b7a'}
                             Label{x:12;y:19;text:Model.whole(wrow.modelData.signal);font.pixelSize:12;color:wrow.modelData.connected?root.tint:'#91a5b0';width:34}
                             Column{x:52;y:9;spacing:4;width:parent.width-300
@@ -469,17 +463,15 @@ Panel {
                             Row{anchors.right:parent.right;anchors.rightMargin:12;y:12;spacing:8
                                 Label{visible:wrow.modelData.known&&!wrow.modelData.connected&&!wrow.busy;text:'saved';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
                                 Action{visible:wrow.modelData.known&&!wrow.modelData.connected&&!wrow.busy&&root.wifiKind==='';text:'Forget';implicitHeight:28;implicitWidth:66;onClicked:root.wifiAct('forget',wrow.modelData.ssid)}
-                                Label{text:wrow.busy?(root.wifiKind==='connect'?'Connecting…':root.wifiKind==='disconnect'?'Disconnecting…':'Forgetting…'):wrow.modelData.connected?'Connected  ·  disconnect ⏏':wrow.modelData.hidden?'':wrow.modelData.known?'connect ↗':root.needsPassphrase(wrow.modelData)?'passphrase 🔒':'open · connect ↗';color:wrow.modelData.connected?root.tint:'#c3d3dc';font.pixelSize:11;anchors.verticalCenter:parent.verticalCenter}
+                                Label{text:wrow.busy?(root.wifiKind==='connect'?'Connecting…':root.wifiKind==='disconnect'?'Disconnecting…':'Forgetting…'):wrow.modelData.connected?'Connected  ·  disconnect ⏏':wrow.modelData.hidden?'':wrow.modelData.known?'connect ↗':wrow.enterprise?'set up 🔐':root.needsPassphrase(wrow.modelData)?'passphrase 🔒':'open · connect ↗';color:wrow.modelData.connected?root.tint:'#c3d3dc';font.pixelSize:11;anchors.verticalCenter:parent.verticalCenter}
                             }
-                            MouseArea{id:wmouse;x:0;y:0;width:parent.width;height:58;hoverEnabled:true;cursorShape:Qt.PointingHandCursor;onClicked:root.rowClicked(wrow.modelData)}
                             Column{visible:wrow.prompting;x:52;y:54;width:parent.width-64;spacing:6
-                                TextField{id:idField;visible:wrow.enterprise;width:parent.width-190;placeholderText:'Identity (user@domain)';font.family:Style.font.family;font.pixelSize:12;text:wrow.prompting?root.identityText:'';onTextChanged:if(wrow.prompting&&text!==root.identityText)root.identityText=text;onAccepted:pwField.forceActiveFocus();Keys.onEscapePressed:root.passwordSsid=''}
                                 Row{width:parent.width;spacing:8
                                     TextField{id:pwField;width:parent.width-190;password:true;placeholderText:'Passphrase';font.family:Style.font.family;font.pixelSize:12;text:wrow.prompting?root.passwordText:'';onTextChanged:if(wrow.prompting&&text!==root.passwordText)root.passwordText=text
-                                        onAccepted:if(wrow.enterprise)root.wifiConnectEnterprise(wrow.modelData.ssid,root.identityText,root.passwordText);else root.wifiConnectPsk(wrow.modelData.ssid,root.passwordText)
+                                        onAccepted:if(root.passwordText.length>=8)root.wifiConnectPsk(wrow.modelData.ssid,root.passwordText)
                                         Keys.onEscapePressed:root.passwordSsid=''
-                                        onVisibleChanged:if(visible&&!wrow.enterprise)Qt.callLater(forceActiveFocus)}
-                                    Action{text:'Connect';implicitHeight:30;implicitWidth:86;enabled:root.passwordText.length>=8&&(!wrow.enterprise||root.identityText.length>0);onClicked:if(wrow.enterprise)root.wifiConnectEnterprise(wrow.modelData.ssid,root.identityText,root.passwordText);else root.wifiConnectPsk(wrow.modelData.ssid,root.passwordText)}
+                                        onVisibleChanged:if(visible)Qt.callLater(forceActiveFocus)}
+                                    Action{text:'Connect';implicitHeight:30;implicitWidth:86;enabled:root.passwordText.length>=8;onClicked:root.wifiConnectPsk(wrow.modelData.ssid,root.passwordText)}
                                     Action{text:'Cancel';implicitHeight:30;implicitWidth:80;onClicked:{root.passwordSsid='';root.passwordText=''}}
                                 }
                             }
@@ -490,7 +482,7 @@ Panel {
                         Label{text:(root.wifiPage+1)+' / '+Math.max(1,Math.ceil(root.wifiRows.length/8));anchors.verticalCenter:parent.verticalCenter}
                         Action{text:'Next →';opacity:(root.wifiPage+1)*8<root.wifiRows.length?1:0.4;onClicked:root.wifiPage=Math.min(Math.max(0,Math.ceil(root.wifiRows.length/8)-1),root.wifiPage+1)}
                     }
-                    Label{width:parent.width;wrapMode:Text.WordWrap;text:'Connect, disconnect and forget go through NetworkManager as your user. Passphrases travel over D-Bus or stdin, never on a command line, and are not stored by this plugin. Band pins reassociate and may drop the link for a few seconds.';font.pixelSize:10}
+                    Label{width:parent.width;wrapMode:Text.WordWrap;text:'Connect, disconnect and forget go through NetworkManager as your user. Passphrases travel over D-Bus, never on a command line, and are not stored by this plugin. Enterprise (802.1X) networks open in the system connection editor, which is where their CA certificate and server name belong. Band pins reassociate and may drop the link for a few seconds.';font.pixelSize:10}
                 }
                 // ------------------------------------------------------------ Interfaces
                 Column {

@@ -116,6 +116,16 @@ class ResolverTests(unittest.TestCase):
         self.assertIn('1.1.1.1#cloudflare-dns.com', links[0]['servers'])
 
 
+class LocaleTests(unittest.TestCase):
+    def test_parsed_commands_run_in_the_c_locale(self):
+        # A translated "enabled"/"connected" would otherwise change decisions.
+        self.assertEqual(net.C_LOCALE['LC_ALL'], 'C')
+        with patch.object(net.subprocess, 'run') as run:
+            run.return_value = type('P', (), {'stdout': '', 'returncode': 0})()
+            net.run(['nmcli', '-t', 'general'])
+        self.assertEqual(run.call_args.kwargs['env']['LC_ALL'], 'C')
+
+
 class SocketTests(unittest.TestCase):
     RAW = ('tcp   ESTAB 0 0 10.0.0.22:1  1.1.1.1:443 users:(("brave",pid=10,fd=1))\n'
            'tcp   ESTAB 0 0 10.0.0.22:2  1.1.1.1:443 users:(("brave",pid=10,fd=2))\n'
@@ -146,6 +156,14 @@ class SocketTests(unittest.TestCase):
         self.assertEqual(net.host_kind('100.200.1.1'), 'internet')
         self.assertEqual(net.host_kind('127.0.0.1'), 'loopback')
 
+    def test_one_socket_on_two_descriptors_counts_once(self):
+        raw = 'tcp ESTAB 0 0 10.0.0.22:1 1.1.1.1:443 users:(("app",pid=123,fd=3),("app",pid=123,fd=4))\n'
+        with patch.object(net, 'process', return_value=None):
+            t = net.talkers(raw, '')
+        self.assertEqual(t['total'], 1)
+        self.assertEqual(t['rows'][0]['count'], 1)
+        self.assertEqual(t['rows'][0]['remotes'][0]['count'], 1)
+
     def test_ipv6_peer_host_extraction(self):
         self.assertEqual(net.peer_host('[2606:4700::1111]:443'), '2606:4700::1111')
         self.assertEqual(net.peer_host('10.0.0.1:53'), '10.0.0.1')
@@ -154,11 +172,29 @@ class SocketTests(unittest.TestCase):
     def test_tcp_counters_and_socket_pools(self):
         snmp = ('Tcp: RtoAlgorithm ActiveOpens PassiveOpens CurrEstab RetransSegs\n'
                 'Tcp: 1 41696 187 73 14527\n')
-        s = net.tcp_stats(snmp, 'TCP: inuse 81 orphan 0 tw 55 alloc 84 mem 0\nUDP: inuse 10 mem 1088\n')
+        s = net.tcp_stats(snmp, 'TCP: inuse 81 orphan 0 tw 55 alloc 84 mem 0\nUDP: inuse 10 mem 1088\n',
+                          'TCP6: inuse 7\nUDP6: inuse 3\n')
         self.assertEqual(s['CurrEstab'], 73)
         self.assertEqual(s['RetransSegs'], 14527)
-        self.assertEqual(s['tcpInuse'], 81)
-        self.assertEqual(s['udpInuse'], 10)
+        # IPv6 sockets count too, but the shared alloc/mem figures must not.
+        self.assertEqual(s['tcpInuse'], 88)
+        self.assertEqual(s['udpInuse'], 13)
+        self.assertEqual(s['tcpAlloc'], 84)
+
+
+class EscapingTests(unittest.TestCase):
+    def test_connection_name_keeps_its_colon_not_its_backslash(self):
+        c = net.nm_connection('01745084-b1f3-4355-ba68-54cecfd27bdd', 'connection.id:Cafe\\:East\nipv4.method:auto\n')
+        self.assertEqual(c['name'], 'Cafe:East')
+        self.assertEqual(c['method4'], 'auto')
+
+    def test_wrapped_ipv6_resolver_is_a_server_not_a_field(self):
+        # "fd::53" on a continuation line reads exactly like a "fd:" label.
+        raw = ('Link 2 (wlp2s0)\n       DNS Servers: 2001:db8::1\n'
+               '                    fd::53\n     Default Route: yes\n')
+        link = net.resolve_status(raw)[0]
+        self.assertEqual(link['servers'], ['2001:db8::1', 'fd::53'])
+        self.assertTrue(link['defaultRoute'])
 
 
 class PingTests(unittest.TestCase):
@@ -182,7 +218,7 @@ class HistoryTests(unittest.TestCase):
             now = 1000000
 
             def add(ts, rx, boot):
-                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?)', (ts, rx, 10.0, 12.0, 70.0, 'wlp2s0', boot))
+                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?,?)', (ts, rx, 10.0, 12.0, 70.0, 'wlp2s0', boot, net.HISTORY_INTERVAL))
             add(now - 604900, 5.0, 'old')
             add(now - 20, 100.0, 'a')
             add(now - 18, 900.0, 'a')
@@ -207,14 +243,15 @@ class HistoryTests(unittest.TestCase):
             db = net.db_open()
             now = 1000000
             for i in range(4):
-                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?)',
-                           (now - 3000 + i * net.HISTORY_INTERVAL, 1000.0, 500.0, 10.0, 70.0, 'wlp2s0', 'a'))
+                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?,?)',
+                           (now - 3000 + i * 16, 1000.0, 500.0, 10.0, 70.0, 'wlp2s0', 'a', 16.0))
             db.commit()
             h = net.history(db, 604800, now)
-            # Four samples of 1000 B/s, each standing for 15 seconds.
+            # Four samples of 1000 B/s, each covering the 16 seconds it really
+            # spanned rather than the nominal 15.
             self.assertEqual(h['count'], 4)
-            self.assertEqual(h['totalRx'], 4 * 1000.0 * net.HISTORY_INTERVAL)
-            self.assertEqual(h['totalTx'], 4 * 500.0 * net.HISTORY_INTERVAL)
+            self.assertEqual(h['totalRx'], 4 * 1000.0 * 16.0)
+            self.assertEqual(h['totalTx'], 4 * 500.0 * 16.0)
             # The same samples must total the same however coarsely they are bucketed.
             self.assertEqual(net.history(db, 3600, now)['totalRx'], h['totalRx'])
             db.close()

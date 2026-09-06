@@ -18,6 +18,11 @@ PROVIDERS = ('DHCP', 'Cloudflare', 'Google')
 BANDS = ('auto', '2.4', '5', '6')
 UUID_RE = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 PING_WINDOW = 24
+# `resolvectl status` wraps long lists onto indented continuation lines. A
+# continuation can look like "fd::53", so only these labels open a new field.
+RESOLVE_LABELS = {'Current Scopes', 'Protocols', 'Current DNS Server', 'DNS Servers',
+                  'Fallback DNS Servers', 'DNS Domain', 'Default Route', 'DNSSEC supported',
+                  'resolv.conf mode', 'Link', 'Global'}
 HISTORY_INTERVAL = 15   # seconds between recorded samples; each sample stands for this long
 
 
@@ -28,9 +33,13 @@ def read(path):
         return ''
 
 
+# Every command here is parsed by word, so the C locale is part of the contract.
+C_LOCALE = dict(os.environ, LC_ALL='C', LANG='C')
+
+
 def run(args, timeout=3):
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False, env=C_LOCALE)
         return p.stdout if p.returncode == 0 else ''
     except (OSError, subprocess.TimeoutExpired):
         return ''
@@ -264,9 +273,9 @@ def nm_connection(uuid, raw=None):
     raw = raw if raw is not None else run(['nmcli', '-t', '-f', fields, 'con', 'show', 'uuid', uuid])
     kv = {}
     for line in raw.splitlines():
-        k, sep, v = line.partition(':')
-        if sep:
-            kv[k.strip()] = v.strip()
+        parts = nm_split(line)
+        if len(parts) >= 2:
+            kv[parts[0].strip()] = ':'.join(parts[1:]).strip()
     return {'uuid': uuid, 'name': kv.get('connection.id', ''), 'type': kv.get('connection.type', ''), 'autoconnect': kv.get('connection.autoconnect', '') == 'yes',
             'metered': kv.get('connection.metered', ''), 'method4': kv.get('ipv4.method', ''), 'method6': kv.get('ipv6.method', ''),
             'addresses4': kv.get('ipv4.addresses', ''), 'gateway4': kv.get('ipv4.gateway', ''), 'dns4': kv.get('ipv4.dns', ''),
@@ -300,7 +309,7 @@ def resolve_status(raw=None):
         if block is None:
             continue
         m = re.match(r'^\s*([A-Za-z][A-Za-z .]*?):\s?(.*)$', line)
-        if m and not re.match(r'^\s*[0-9a-fA-F:.]+#', line):
+        if m and m.group(1).strip() in RESOLVE_LABELS:
             key, value = m.group(1).strip(), m.group(2).strip()
         else:
             value = line.strip()
@@ -373,7 +382,11 @@ def talkers(raw=None, listening=None):
         if not owners:
             anonymous += 1
             continue
+        seen_pids = set()
         for name, pid in owners:
+            if pid in seen_pids:
+                continue
+            seen_pids.add(pid)
             g = groups.setdefault(int(pid), {'pid': int(pid), 'name': name[:64], 'count': 0, 'tcp': 0, 'udp': 0, 'remotes': {}})
             g['count'] += 1
             g['tcp' if proto.startswith('tcp') else 'udp'] += 1
@@ -402,9 +415,10 @@ def talkers(raw=None, listening=None):
     return {'rows': rows, 'total': total, 'anonymous': anonymous, 'listening': len([l for l in listening.splitlines() if l.strip()])}
 
 
-def tcp_stats(snmp=None, sockstat=None):
+def tcp_stats(snmp=None, sockstat=None, sockstat6=None):
     snmp = snmp if snmp is not None else read('/proc/net/snmp')
     sockstat = sockstat if sockstat is not None else read('/proc/net/sockstat')
+    sockstat6 = sockstat6 if sockstat6 is not None else read('/proc/net/sockstat6')
     out = {}
     lines = snmp.splitlines()
     for i in range(len(lines) - 1):
@@ -417,9 +431,18 @@ def tcp_stats(snmp=None, sockstat=None):
         head, _, rest = line.partition(':')
         v = rest.split()
         if head in ('TCP', 'UDP'):
-            pairs = dict(zip(v[0::2], v[1::2]))
-            for k, val in pairs.items():
+            for k, val in zip(v[0::2], v[1::2]):
                 out[head.lower() + k.capitalize()] = int(val)
+    # Only the in-use counts are per-family; allocation and memory are shared,
+    # so adding those would double-count them.
+    for line in sockstat6.splitlines():
+        head, _, rest = line.partition(':')
+        v = rest.split()
+        if head in ('TCP6', 'UDP6'):
+            pairs = dict(zip(v[0::2], v[1::2]))
+            if 'inuse' in pairs:
+                key = head[:-1].lower() + 'Inuse'
+                out[key] = out.get(key, 0) + int(pairs['inuse'])
     return out
 
 
@@ -569,12 +592,17 @@ def focus(pid, start):
 def db_open():
     db = sqlite3.connect(STATE / 'history.sqlite3', timeout=5)
     db.execute('PRAGMA journal_mode=WAL')
-    db.execute('CREATE TABLE IF NOT EXISTS samples (ts REAL PRIMARY KEY, rx REAL, tx REAL, latency REAL, signal REAL, iface TEXT, boot TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS samples (ts REAL PRIMARY KEY, rx REAL, tx REAL, latency REAL, signal REAL, iface TEXT, boot TEXT, span REAL)')
+    # Databases written before spans were recorded gain the column; their rows
+    # keep a NULL span and fall back to the nominal interval.
+    if 'span' not in {row[1] for row in db.execute('PRAGMA table_info(samples)')}:
+        db.execute('ALTER TABLE samples ADD COLUMN span REAL')
     return db
 
 
-def record(db, ts, rx, tx, latency, signal, iface):
-    db.execute('INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?,?)', (ts, rx, tx, latency, signal, iface, read('/proc/sys/kernel/random/boot_id').strip()))
+def record(db, ts, rx, tx, latency, signal, iface, span=HISTORY_INTERVAL):
+    db.execute('INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?,?,?)',
+               (ts, rx, tx, latency, signal, iface, read('/proc/sys/kernel/random/boot_id').strip(), span))
     db.execute('DELETE FROM samples WHERE ts < ?', (ts - 7 * 86400,))
     db.commit()
 
@@ -584,11 +612,14 @@ def history(db, seconds, now=None):
     bucket = max(HISTORY_INTERVAL, seconds / 240)
     # Boot is part of each bucket; never connect a line across a reboot.
     rows = db.execute('SELECT MIN(ts), AVG(rx), MAX(rx), AVG(tx), AVG(latency), AVG(signal), COUNT(*), boot FROM samples WHERE ts>=? AND ts<=? GROUP BY CAST(ts/? AS INTEGER), boot ORDER BY MIN(ts)', (now - seconds, now, bucket)).fetchall()
+    # Bytes are the rate over the time each sample actually covered, summed at
+    # full resolution so bucketing cannot change the answer.
+    totals = db.execute('SELECT SUM(rx*COALESCE(span,?)), SUM(tx*COALESCE(span,?)) FROM samples WHERE ts>=? AND ts<=?',
+                        (HISTORY_INTERVAL, HISTORY_INTERVAL, now - seconds, now)).fetchone()
     return {'seconds': seconds, 'bucket': bucket, 'now': now, 'points': rows, 'count': sum(r[6] for r in rows),
             'peakRx': max((r[2] for r in rows), default=0), 'peakTx': max((r[3] or 0 for r in rows), default=0),
             'peakLatency': max((r[4] or 0 for r in rows), default=0),
-            'totalRx': sum((r[1] or 0) * r[6] * HISTORY_INTERVAL for r in rows),
-            'totalTx': sum((r[3] or 0) * r[6] * HISTORY_INTERVAL for r in rows)}
+            'totalRx': totals[0] or 0, 'totalTx': totals[1] or 0}
 
 
 def atomic(name, value):
@@ -618,6 +649,16 @@ def daemon():
         while True:
             start = time.monotonic()
             try:
+                # Sample the counters first and timestamp that moment. Reading
+                # them after the slow jobs charged their duration to the wrong
+                # interval and made rates leap and collapse.
+                sampled = time.monotonic()
+                now_counters = netdev()
+                tcp_now = tcp_stats()
+                speed = rates(counters, now_counters, sampled - counted_at if counters else 0)
+                counters, counted_at = now_counters, sampled
+                tcp_rates = {k: max(0, tcp_now.get(k, 0) - tcp_prev.get(k, 0)) / (sampled - tcp_at) for k in ('RetransSegs', 'ActiveOpens', 'PassiveOpens', 'InSegs', 'OutSegs')} if tcp_prev and sampled > tcp_at else {}
+                tcp_prev, tcp_at = tcp_now, sampled
                 for name, (interval, fn) in jobs.items():
                     if start >= due[name]:
                         try:
@@ -625,12 +666,6 @@ def daemon():
                         except (OSError, ValueError) as e:
                             print(f'Net Pulse: {name}: {type(e).__name__}: {e}', flush=True)
                         due[name] = start + interval
-                now_counters = netdev()
-                speed = rates(counters, now_counters, start - counted_at if counters else 0)
-                counters, counted_at = now_counters, start
-                tcp_now = tcp_stats()
-                tcp_rates = {k: max(0, tcp_now.get(k, 0) - tcp_prev.get(k, 0)) / (start - tcp_at) for k in ('RetransSegs', 'ActiveOpens', 'PassiveOpens', 'InSegs', 'OutSegs')} if tcp_prev and start > tcp_at else {}
-                tcp_prev, tcp_at = tcp_now, start
                 route = default_route()
                 iface = route.get('iface', '')
                 for key, host in (('gateway', route.get('gateway', '')), ('internet', PROBE if iface else '')):
@@ -650,10 +685,11 @@ def daemon():
                     if m['wifi'].get('quality') is not None:
                         acc['signal'].append(m['wifi']['quality'])
                 if start - last_history >= HISTORY_INTERVAL:
+                    span = min(4 * HISTORY_INTERVAL, max(1.0, start - last_history))
                     if iface and acc['rx']:
                         lat = [v for v in acc['latency'] if v is not None]
                         record(db, m['ts'], sum(acc['rx']) / len(acc['rx']), sum(acc['tx']) / len(acc['tx']), sum(lat) / len(lat) if lat else None,
-                               sum(acc['signal']) / len(acc['signal']) if acc['signal'] else None, iface)
+                               sum(acc['signal']) / len(acc['signal']) if acc['signal'] else None, iface, span)
                     atomic('history.json', {str(s): history(db, s, m['ts']) for s in (3600, 86400, 604800)})
                     acc = {'rx': [], 'tx': [], 'latency': [], 'signal': []}
                     last_history = start
