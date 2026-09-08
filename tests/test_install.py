@@ -1,6 +1,7 @@
 import datetime
 import json
 from pathlib import Path
+import re
 import runpy
 import shutil
 import tempfile
@@ -134,6 +135,24 @@ class GuardTests(unittest.TestCase):
                 runpy.run_path(str(SOURCE / 'install.py'))
             right = json.loads(config.read_text())['bar']['layout']['right']
             self.assertEqual([e['id'] for e in right], ['nixfred.net-pulse', 'someone.else'])
+
+
+class AboutTests(unittest.TestCase):
+    def test_the_manifest_carries_what_the_about_tab_shows(self):
+        manifest = json.loads((SOURCE / 'manifest.json').read_text())
+        self.assertRegex(manifest['version'], r'^\d+\.\d+\.\d+$')
+        self.assertEqual(manifest['repository'], 'https://github.com/nixfred/omanet.plugin.omarchy')
+        self.assertEqual(manifest['homepage'], 'https://nixfred.com')
+
+    def test_the_about_fallbacks_agree_with_the_manifest(self):
+        # The panel prefers the plugin registry; these constants are what it
+        # shows when the registry is unreachable, so they must not drift.
+        panel = (SOURCE / 'Panel.qml').read_text()
+        manifest = json.loads((SOURCE / 'manifest.json').read_text())
+        for field, key in [('version', 'version'), ('repoUrl', 'repository'), ('siteUrl', 'homepage')]:
+            fallback = re.search(r"readonly property string %s:.* : '([^']+)'" % field, panel).group(1)
+            self.assertEqual(fallback, manifest[key], field)
+        self.assertIn("'About'", panel)
 
 
 if __name__ == '__main__':

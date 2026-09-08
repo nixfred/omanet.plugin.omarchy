@@ -38,7 +38,17 @@ Panel {
     readonly property var ping: net.ping || {}
     readonly property var iface: net.iface || {}
     readonly property real openPanelIndicatorWidth: button.width-12
-    readonly property var tabs: ['Overview','Wi-Fi','Interfaces','Talkers','Network lab']
+    readonly property var tabs: ['Overview','Wi-Fi','Interfaces','Talkers','Network lab','About']
+    // Identity for the About tab. manifest.json is the single source of truth
+    // for all three, so bumping a version or moving the repo is one edit there;
+    // the constants are only the fallback for when the registry is unreachable.
+    readonly property var pluginManifest: {
+        var reg = bar && bar.shell ? bar.shell.pluginRegistry : null
+        return reg && reg.installedPlugins ? (reg.installedPlugins[root.moduleName] || null) : null
+    }
+    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.1.0'
+    readonly property string repoUrl: pluginManifest && pluginManifest.repository ? String(pluginManifest.repository) : 'https://github.com/nixfred/omanet.plugin.omarchy'
+    readonly property string siteUrl: pluginManifest && pluginManifest.homepage ? String(pluginManifest.homepage) : 'https://nixfred.com'
 
     // ---- NetworkManager objects for Wi-Fi actions (passphrases never touch argv)
     readonly property bool nmAvailable: Networking.backend === NetworkBackendType.NetworkManager
@@ -150,6 +160,14 @@ Panel {
         Quickshell.execDetached(['wl-copy', text])
         actionStatus = 'Copied ' + (what ? what + ' ' : '') + text + ' to the clipboard.'
     }
+    // Links go to the desktop handler as an argument, never through a shell string.
+    function openUrl(url) {
+        var target = String(url || '')
+        if (!/^https:\/\//.test(target)) return
+        actionStatus = 'Opened ' + target + ' in your browser.'
+        close()
+        Quickshell.execDetached(['xdg-open', target])
+    }
     function summon(target, payload) {
         if(root.bar && root.bar.shell) { root.close(); root.bar.shell.summon(target, JSON.stringify(payload||{})) }
     }
@@ -159,7 +177,7 @@ Panel {
         root.close()
     }
     function status() {
-        return JSON.stringify({opened:opened,mode:mode,readout:Model.readout(net,mode),tint:String(tint),stale:stale,online:!!net.online,health:health,iface:iface.name||'',kind:chipKind,ssid:wifi.ssid||'',rx:(net.rates||{}).rx||0,tx:(net.rates||{}).tx||0,latency:ping.internet,samples:chart.count||0,tab:tab,chooseMode:chooseMode,networks:wifiRows.length,interfaces:(net.interfaces||[]).length,talkers:rows.length,wifiAction:wifiKind,action:actionStatus})
+        return JSON.stringify({version:version,opened:opened,mode:mode,readout:Model.readout(net,mode),tint:String(tint),stale:stale,online:!!net.online,health:health,iface:iface.name||'',kind:chipKind,ssid:wifi.ssid||'',rx:(net.rates||{}).rx||0,tx:(net.rates||{}).tx||0,latency:ping.internet,samples:chart.count||0,tab:tab,chooseMode:chooseMode,networks:wifiRows.length,interfaces:(net.interfaces||[]).length,talkers:rows.length,wifiAction:wifiKind,action:actionStatus})
     }
     onOpenedChanged: { if(opened){ snapshotFile.reload(); historyFile.reload() } syncScanner() }
     onTabChanged: { page=0; wifiPage=0; syncScanner(); if(panel && scroller) scroller.contentY=0 }
@@ -207,7 +225,7 @@ Panel {
         function status():string {return root.status()}
         function modes():void {root.chooseMode=true;root.open()}
         function display(value:int):void {root.setMode(value)}
-        function showTab(value:int):void {root.tab=Model.clamp(value,0,4);root.chooseMode=false;root.open()}
+        function showTab(value:int):void {root.tab=Model.clamp(value,0,root.tabs.length-1);root.chooseMode=false;root.open()}
         function historyRange(value:int):void {if([3600,86400,604800].indexOf(value)>=0)root.range=value}
         function rescan():void {root.runAction('rescan',[],'Scanning…')}
         function toggleNetwork():void {if(root.nmAvailable) Networking.wifiEnabled=!Networking.wifiEnabled}
@@ -290,6 +308,22 @@ Panel {
         MouseArea{id:nodeArea;anchors.fill:parent;hoverEnabled:node.copyable;enabled:node.copyable
             cursorShape:Qt.PointingHandCursor;onClicked:root.copy(node.value,node.copyWhat)}
     }
+    component Link: Rectangle {
+        id:link
+        property string label:''
+        property string url:''
+        height:38;radius:10
+        color:linkArea.containsMouse?'#17262f':'#101c26'
+        border.color:linkArea.containsMouse?root.tint:'#253744'
+        Behavior on color {ColorAnimation{duration:110}}
+        Label{anchors.left:parent.left;anchors.leftMargin:12;anchors.verticalCenter:parent.verticalCenter
+            text:link.label;font.pixelSize:10;font.letterSpacing:1}
+        Text{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter
+            text:link.url;color:linkArea.containsMouse?'#dfe4ff':'#b6c0fb';font.pixelSize:11;textFormat:Text.PlainText}
+        MouseArea{id:linkArea;anchors.fill:parent;hoverEnabled:true;cursorShape:Qt.PointingHandCursor
+            acceptedButtons:Qt.LeftButton|Qt.RightButton
+            onClicked:function(event){if(event.button===Qt.RightButton)root.copy(link.url,'the link to');else root.openUrl(link.url)}}
+    }
     KeyboardPanel {
         id:panel;anchorItem:button;owner:root;bar:root.bar;open:root.opened;focusTarget:body
         contentWidth:panel.fittedContentWidth(root.chooseMode?370:740)
@@ -299,7 +333,7 @@ Panel {
             Keys.onEscapePressed:root.close()
             Keys.onPressed:function(event){
                 if(event.key===Qt.Key_Left && !root.chooseMode){root.tab=Math.max(0,root.tab-1);event.accepted=true}
-                if(event.key===Qt.Key_Right && !root.chooseMode){root.tab=Math.min(4,root.tab+1);event.accepted=true}
+                if(event.key===Qt.Key_Right && !root.chooseMode){root.tab=Math.min(root.tabs.length-1,root.tab+1);event.accepted=true}
                 if(root.chooseMode && event.key>=Qt.Key_1 && event.key<=Qt.Key_5){root.setMode(event.key-Qt.Key_1);event.accepted=true}
             }
             Rectangle {anchors.fill:parent;anchors.margins:-10;radius:14;color:'#0b141d'}
@@ -337,7 +371,7 @@ Panel {
                     width:parent.width;spacing:10
                     Column {width:parent.width-250;spacing:3
                         Heading{text:'NET PULSE';font.pixelSize:19;font.letterSpacing:3}
-                        Label{text:'Your connection, in motion.';font.pixelSize:11}
+                        Label{text:'Your connection, in motion.   ·   v'+root.version;font.pixelSize:11}
                     }
                     Rectangle {width:240;height:32;radius:16;color:Qt.alpha(root.tint,0.14);border.color:Qt.alpha(root.tint,0.5)
                         Row {anchors.centerIn:parent;spacing:7
@@ -677,6 +711,28 @@ Panel {
                         }
                     }
                     Label{width:parent.width;wrapMode:Text.WordWrap;text:'Nothing here edits routes, firewall rules, sysctl or NetworkManager system files. Counters are kernel totals since boot; rates are per second over the last sample.';font.pixelSize:10}
+                }
+                // ------------------------------------------------------------ About
+                Column {
+                    width:parent.width;spacing:12;visible:root.tab===5;height:visible?implicitHeight:0
+                    Rectangle{width:parent.width;height:aboutCol.implicitHeight+28;radius:14;color:'#121b2c';border.color:'#303a57'
+                        Column{id:aboutCol;anchors.fill:parent;anchors.margins:14;spacing:12
+                            Row{width:parent.width;spacing:14
+                                NetChip{width:64;height:64;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint
+                                    animate:root.opened&&root.tab===5&&!root.stale&&root.setting('animated',true)}
+                                Column{anchors.verticalCenter:parent.verticalCenter;spacing:5
+                                    Heading{text:'Net Pulse';font.pixelSize:20;font.letterSpacing:2}
+                                    Label{text:'Version '+root.version+'   ·   MIT licence   ·   Fred Nix';font.pixelSize:11}
+                                }
+                            }
+                            Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:11
+                                text:'A living network chip for the Omarchy bar: throughput, latency, Wi-Fi radio detail, interface settings, seven-day history and focus-only top talkers. Everything it records stays on this machine.'}
+                            Link{width:parent.width;label:'REPOSITORY';url:root.repoUrl}
+                            Link{width:parent.width;label:'AUTHOR';url:root.siteUrl}
+                            Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10
+                                text:'Click a link to open it in your browser; right-click to copy it instead. Bugs and feature requests go to the repository.'}
+                        }
+                    }
                 }
                 Rectangle{width:parent.width;height:1;color:'#25343f'}
                 Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10;color:root.stale?'#f0ba82':'#a4b9c3';text:root.actionStatus || (root.stale?'Telemetry is offline. Check the net-pulse user service.': 'LIVE · updated '+Qt.formatTime(new Date(root.net.ts*1000),'h:mm:ss AP')+'  ·  History stays on this machine  ·  Esc closes')}

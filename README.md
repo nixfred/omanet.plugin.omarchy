@@ -49,6 +49,8 @@ The **Wi-Fi** tab carries the live association — dBm and quality, channel, wid
 
 The **Network lab** tab holds every resolver systemd-resolved is using per link, with one-click DHCP / Cloudflare / Google switching and a cache flush; a 10-ping latency burst with jitter, a public-address lookup, a connectivity re-check and the speed test; then the transport counters — established connections, retransmits, new connections per second, socket pools, listening ports, resets — and the routing table.
 
+The **About** tab carries the version, a link to this repository and a link to [nixfred.com](https://nixfred.com). Version, repository and homepage all come from `manifest.json` through the shell's plugin registry, so a release is one edit there. Click a link to open it in your browser; right-click to copy it instead.
+
 ## What it does
 
 - Animated chip that knows what it is plugged into: signal arcs on Wi-Fi, a wired jack with a running link light on Ethernet, a broken ring when there is no route. Packet speed follows real throughput.

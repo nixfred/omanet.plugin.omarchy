@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.net-pulse",
   "name": "Net Pulse",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Fred Nix",
   "license": "MIT",
   "description": "A living network chip: throughput, latency, Wi-Fi radio detail, interface settings, seven-day history, and focus-only top talkers.",
@@ -14,5 +14,7 @@
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
-  }
+  },
+  "repository": "https://github.com/nixfred/omanet.plugin.omarchy",
+  "homepage": "https://nixfred.com"
 }
