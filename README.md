@@ -49,12 +49,15 @@ The **Wi-Fi** tab carries the live association — dBm and quality, channel, wid
 
 The **Network lab** tab holds every resolver systemd-resolved is using per link, with one-click DHCP / Cloudflare / Google switching and a cache flush; a 10-ping latency burst with jitter, a public-address lookup, a connectivity re-check and the speed test; then the transport counters — established connections, retransmits, new connections per second, socket pools, listening ports, resets — and the routing table.
 
+The **Data** tab answers "how much have I used": bytes down and up over the last hour, day, week, month, year, or everything ever recorded, as a stacked bar per bucket with per-bucket hover readings, plus the daily average, the down/up split and the same totals broken out per interface. It also says how much of the window was actually recorded, so a fresh install reads "2d 8h recorded of 30d 0h" rather than implying a quiet month.
+
 The **About** tab carries the version, a link to this repository and a link to [nixfred.com](https://nixfred.com). Version, repository and homepage all come from `manifest.json` through the shell's plugin registry, so a release is one edit there. Click a link to open it in your browser; right-click to copy it instead.
 
 ## What it does
 
 - Animated chip that knows what it is plugged into: signal arcs on Wi-Fi, a wired jack with a running link light on Ethernet, a broken ring when there is no route. Packet speed follows real throughput.
 - Continuous 1-hour, 24-hour and 7-day history of download, upload, latency and signal, with the per-bucket download peak as a faint envelope and hover readings. Missing history is left blank; shutdowns and recording gaps break the trace.
+- Data used, down and up, over the last hour, day, week, month, year or all time, bucketed into bars you can hover and split by interface. Totals survive reboots because they are summed from measured rates, not read from counters that reset.
 - Wi-Fi that reads like a radio should: dBm and quality, channel and width, the band, negotiated rates each way, Wi-Fi 4/5/6/7, transmit power, retries, failures and beacon loss, and how long this association has held.
 - Connect, disconnect and forget networks; WPA and WPA3 passphrases; pin the 2.4, 5 or 6 GHz band or hand it back to automatic; turn the radio off; share the current network as a QR code. An enterprise (802.1X) network opens the system connection editor, which is where its CA certificate, EAP method and server name belong.
 - Every interface with its own card, including tunnels like Tailscale and WireGuard, and the saved NetworkManager profile behind it.
@@ -87,11 +90,14 @@ omarchy-shell nixfred.net-pulse open
 omarchy-shell nixfred.net-pulse modes
 omarchy-shell nixfred.net-pulse status
 omarchy-shell nixfred.net-pulse rescan
+omarchy-shell nixfred.net-pulse showTab 4            # 0-6: overview, wi-fi, interfaces, talkers, data, lab, about
+omarchy-shell nixfred.net-pulse dataRange 2592000    # 3600, 86400, 604800, 2592000, 31536000, or 0 for all time
 systemctl --user status net-pulse.service
 journalctl --user -u net-pulse.service
 python3 net_pulse.py snapshot          # one-shot JSON, no daemon needed
 python3 -m unittest discover -s tests -v
 node tests/test_model.cjs
+qmltestrunner -input tests/tst_widgets.qml
 omarchy plugin validate .
 ```
 
@@ -102,6 +108,8 @@ Disable with `omarchy plugin disable nixfred.net-pulse` and `systemctl --user di
 ## Accounting
 
 Throughput is the delta of `/proc/net/dev` byte counters over the sampling interval, so it counts framed bytes on the interface, not payload. Units are decimal: 1 MB/s is 1,000,000 bytes per second, matching how link rates and speed tests are quoted. A counter reset or a newly appeared interface reads zero rather than a spike.
+
+Data used is the same measurement integrated over time: each sample's rate multiplied by the interval it actually covered, summed at full resolution so the number does not change with how coarsely the bars are bucketed. Because it is built from rates rather than from `/proc/net/dev` totals, a reboot, a counter reset or a renamed interface does not reset it. Nothing is recorded while the collector is stopped, and that missing time is excluded from the averages rather than counted as idle — which is why every range also reports how much of itself was recorded. The last hour is read from the 15-second samples, which are kept for seven days; every longer range comes from an hourly per-interface rollup kept for five years, at one row per hour per interface. Buckets align to the local clock, so a day starts at midnight here and not at midnight UTC. Traffic inside a tunnel is counted on both the tunnel and the interface carrying it, exactly as the kernel counts it, so per-interface figures can legitimately sum to more than what left the machine.
 
 Latency is a single `ping` per probe cycle to the default gateway and to a public resolver, averaged over the last 24 samples. The probe follows the address family carrying the default route, so an IPv6-only host is measured over IPv6 rather than reported as offline. A timed-out probe is kept as a loss, not dropped, so the loss percentage is real; `null` means no sample has come back yet, which is different from a timeout. The gateway probe measures your local link, the internet probe measures the whole path.
 

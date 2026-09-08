@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 
-FILES = ['manifest.json', 'Panel.qml', 'Model.js', 'NetChip.qml', 'HistoryGraph.qml', 'net_pulse.py', 'README.md']
+FILES = ['manifest.json', 'Panel.qml', 'Model.js', 'NetChip.qml', 'HistoryGraph.qml', 'UsageGraph.qml', 'net_pulse.py', 'README.md']
 source = Path(__file__).resolve().parent
 home = Path.home()
 config = home / '.config/omarchy/shell.json'

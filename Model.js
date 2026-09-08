@@ -33,6 +33,44 @@ function size(bytes) {
     if (n >= 1e3) return (n/1e3).toFixed(1)+' KB'
     return n.toFixed(0)+' B'
 }
+// Compact byte totals for a graph axis, where a full unit will not fit.
+function shortSize(bytes) {
+    var n = Math.max(0, num(bytes))
+    if (n >= 1e12) return (n/1e12).toFixed(1)+'T'
+    if (n >= 1e9) return (n/1e9).toFixed(1)+'G'
+    if (n >= 1e6) return (n/1e6).toFixed(0)+'M'
+    if (n >= 1e3) return (n/1e3).toFixed(0)+'K'
+    return n.toFixed(0)+'B'
+}
+// Rolling windows the usage tab offers. 0 means everything ever recorded.
+var RANGES = [3600, 86400, 604800, 2592000, 31536000, 0]
+function rangeName(seconds) {
+    var names = {3600:'Hour', 86400:'Day', 604800:'Week', 2592000:'Month', 31536000:'Year', 0:'All time'}
+    return names[num(seconds)] || 'Hour'
+}
+function rangeWhen(seconds) {
+    var when = {3600:'the last hour', 86400:'the last 24 hours', 604800:'the last 7 days',
+                2592000:'the last 30 days', 31536000:'the last 365 days', 0:'everything recorded'}
+    return when[num(seconds)] || 'the last hour'
+}
+// Averaged over the time actually recorded, never over the whole window: a
+// fresh install has not been watching for a year and must not imply it has.
+// Under a few hours a daily figure is an extrapolation wild enough to alarm
+// -- one busy hour reads as a terabyte a day -- so a short window is quoted
+// as the rate it actually was.
+function pace(bytes, recorded) {
+    var s = num(recorded)
+    if (s < 300) return '—'
+    if (s < 6*3600) return rate(num(bytes)/s)+' average'
+    return size(num(bytes)*86400/s)+' a day'
+}
+// What share of the window was being recorded, as prose rather than a percent.
+function coverage(recorded, seconds) {
+    var r = num(recorded), s = num(seconds)
+    if (s <= 0 || r <= 0) return 'nothing recorded yet'
+    if (r >= s*0.995) return 'fully recorded'
+    return ago(r)+' recorded of '+ago(s)
+}
 function mbit(v) {
     if (!has(v) || Number(v) <= 0) return '—'
     var n = Number(v)

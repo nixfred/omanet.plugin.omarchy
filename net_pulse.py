@@ -25,6 +25,12 @@ RESOLVE_LABELS = {'Current Scopes', 'Protocols', 'Current DNS Server', 'DNS Serv
                   'Fallback DNS Servers', 'DNS Domain', 'Default Route', 'DNSSEC supported',
                   'resolv.conf mode', 'Link', 'Global'}
 HISTORY_INTERVAL = 15   # seconds between recorded samples; each sample stands for this long
+SAMPLE_RETENTION = 7 * 86400        # full 15-second resolution, for the throughput graphs
+USAGE_RETENTION = 5 * 365 * 86400   # hourly byte totals, for the data-usage tab
+# Rolling windows the usage tab offers. 0 is everything ever recorded.
+USAGE_RANGES = (3600, 86400, 604800, 2592000, 31536000, 0)
+# Bucket widths, finest first, for a range that has no fixed one.
+USAGE_LADDER = (3600, 21600, 86400, 604800, 2592000)
 
 
 def read(path):
@@ -621,6 +627,18 @@ def db_open():
     # keep a NULL span and fall back to the nominal interval.
     if 'span' not in {row[1] for row in db.execute('PRAGMA table_info(samples)')}:
         db.execute('ALTER TABLE samples ADD COLUMN span REAL')
+    # Bytes moved per hour per interface. Samples are pruned after a week, so
+    # months and years of usage can only come from a rollup that outlives them;
+    # at one row per hour per interface a decade is a few hundred kilobytes.
+    fresh = db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='usage'").fetchone()[0] == 0
+    db.execute('CREATE TABLE IF NOT EXISTS usage (hour INTEGER, iface TEXT, rx REAL, tx REAL, secs REAL, PRIMARY KEY (hour, iface))')
+    if fresh:
+        # An existing week of samples is worth carrying over rather than
+        # starting the usage tab at zero on the release that adds it.
+        db.execute('INSERT INTO usage (hour, iface, rx, tx, secs) '
+                   'SELECT CAST(ts/3600 AS INTEGER)*3600, iface, SUM(rx*COALESCE(span,?)), SUM(tx*COALESCE(span,?)), SUM(COALESCE(span,?)) '
+                   'FROM samples GROUP BY 1, 2', (HISTORY_INTERVAL, HISTORY_INTERVAL, HISTORY_INTERVAL))
+        db.commit()
     return db
 
 
@@ -631,8 +649,12 @@ def record(db, ts, rx, tx, latency, signal, iface, span=HISTORY_INTERVAL):
     # Retention is destructive and irreversible, so it only runs when the new
     # timestamp is continuous with what is already stored. A clock corrected
     # forward by a week would otherwise erase the week it skipped over.
+    db.execute('INSERT INTO usage (hour, iface, rx, tx, secs) VALUES (?,?,?,?,?) ON CONFLICT (hour, iface) '
+               'DO UPDATE SET rx=rx+excluded.rx, tx=tx+excluded.tx, secs=secs+excluded.secs',
+               (int(ts // 3600) * 3600, iface, rx * span, tx * span, span))
     if newest is None or ts - newest < 86400:
-        db.execute('DELETE FROM samples WHERE ts < ?', (ts - 7 * 86400,))
+        db.execute('DELETE FROM samples WHERE ts < ?', (ts - SAMPLE_RETENTION,))
+        db.execute('DELETE FROM usage WHERE hour < ?', (ts - USAGE_RETENTION,))
     db.commit()
 
 
@@ -649,6 +671,65 @@ def history(db, seconds, now=None):
             'peakRx': max((r[2] for r in rows), default=0), 'peakTx': max((r[3] or 0 for r in rows), default=0),
             'peakLatency': max((r[4] or 0 for r in rows), default=0),
             'totalRx': totals[0] or 0, 'totalTx': totals[1] or 0}
+
+
+def usage_bucket(seconds):
+    """Bar width for a window: enough bars to read, on boundaries you can name."""
+    for limit, width in ((3600, 60), (86400, 3600), (604800, 21600), (2592000, 86400), (31536000, 604800)):
+        if seconds <= limit:
+            return width
+    for width in USAGE_LADDER:
+        if seconds / width <= 60:
+            return width
+    return USAGE_LADDER[-1]
+
+
+def usage(db, seconds, now=None):
+    """Bytes moved in a rolling window, bucketed for a bar chart.
+
+    The last hour is read from the 15-second samples; every longer window comes
+    from the hourly rollup, which is the only thing that outlives the one-week
+    sample retention. Buckets align to the local clock, so a day starts at
+    midnight here rather than at midnight UTC. `seconds` of 0 means everything
+    ever recorded.
+    """
+    now = now or time.time()
+    off = time.localtime(now).tm_gmtoff or 0
+    first = db.execute('SELECT MIN(hour) FROM usage').fetchone()[0]
+    window = float(seconds) if seconds else max(3600.0, now - first) if first is not None else 3600.0
+    bucket = usage_bucket(window)
+    start = now - window
+    if seconds and seconds <= 3600:
+        args = (HISTORY_INTERVAL, HISTORY_INTERVAL, HISTORY_INTERVAL, start, now)
+        rows = db.execute('SELECT CAST((ts+?)/? AS INTEGER), SUM(rx*COALESCE(span,?)), SUM(tx*COALESCE(span,?)), SUM(COALESCE(span,?)) '
+                          'FROM samples WHERE ts>=? AND ts<=? GROUP BY 1 ORDER BY 1', (off, bucket) + args).fetchall()
+        ifaces = db.execute('SELECT iface, SUM(rx*COALESCE(span,?)), SUM(tx*COALESCE(span,?)) FROM samples '
+                            'WHERE ts>=? AND ts<=? GROUP BY iface', (HISTORY_INTERVAL, HISTORY_INTERVAL, start, now)).fetchall()
+        # One sample row per instant, so its spans already are wall-clock time.
+        recorded = sum(r[3] or 0.0 for r in rows)
+    else:
+        # Whole hours only, so a window that begins mid-hour still shows the
+        # bucket it lands in rather than silently dropping it.
+        floor = int(start // 3600) * 3600
+        rows = db.execute('SELECT CAST((hour+?)/? AS INTEGER), SUM(rx), SUM(tx), SUM(secs) FROM usage '
+                          'WHERE hour>=? AND hour<=? GROUP BY 1 ORDER BY 1', (off, bucket, floor, now)).fetchall()
+        ifaces = db.execute('SELECT iface, SUM(rx), SUM(tx) FROM usage WHERE hour>=? AND hour<=? GROUP BY iface',
+                            (floor, now)).fetchall()
+        # Two interfaces busy in the same hour are one hour of recording, not
+        # two; summing their spans would claim more coverage than time passed.
+        recorded = db.execute('SELECT SUM(s) FROM (SELECT MAX(secs) AS s FROM usage WHERE hour>=? AND hour<=? GROUP BY hour)',
+                              (floor, now)).fetchone()[0] or 0.0
+    points = [[b * bucket - off, r or 0.0, t or 0.0] for b, r, t, _ in rows]
+    ifaces = sorted(([n or '—', r or 0.0, t or 0.0] for n, r, t in ifaces), key=lambda row: -(row[1] + row[2]))
+    return {'seconds': window, 'requested': seconds, 'bucket': bucket, 'now': now,
+            'start': int((start + off) // bucket) * bucket - off, 'points': points,
+            'totalRx': sum(p[1] for p in points), 'totalTx': sum(p[2] for p in points),
+            'peak': max((p[1] + p[2] for p in points), default=0.0),
+            # How much of the window was actually being recorded. Without this a
+            # fresh install reads "1.2 GB this year" as though the year were covered.
+            # Edge buckets are counted whole, so coverage is capped at the window.
+            'recorded': min(window, recorded), 'first': first,
+            'ifaces': ifaces[:6]}
 
 
 def atomic(name, value):
@@ -721,6 +802,7 @@ def daemon():
                         record(db, m['ts'], sum(acc['rx']) / len(acc['rx']), sum(acc['tx']) / len(acc['tx']), sum(lat) / len(lat) if lat else None,
                                sum(acc['signal']) / len(acc['signal']) if acc['signal'] else None, iface, span)
                     atomic('history.json', {str(s): history(db, s, m['ts']) for s in (3600, 86400, 604800)})
+                    atomic('usage.json', {str(s): usage(db, s, m['ts']) for s in USAGE_RANGES})
                     acc = {'rx': [], 'tx': [], 'latency': [], 'signal': []}
                     last_history = start
                 atomic('snapshot.json', m)

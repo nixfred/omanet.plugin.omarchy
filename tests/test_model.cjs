@@ -70,4 +70,15 @@ for (const mode of [0,1,2,3,4]) {
 assert.equal(ctx.readout({warm:true,online:true},4),'no address');
 assert.equal(ctx.bare('100.101.176.48/32'),'100.101.176.48');
 
+// Usage pacing: a short window is a rate, a long one is a daily figure, and
+// neither invents time the collector was not running for.
+assert.equal(ctx.pace(1e9, 60), '—');
+assert.equal(ctx.pace(48e9, 3600), '13.3 MB/s average');
+assert.equal(ctx.pace(72e9, 72*3600), '24.00 GB a day');
+assert.equal(ctx.shortSize(0), '0B');
+assert.equal(ctx.shortSize(2.4e9), '2.4G');
+assert.equal(ctx.rangeName(0), 'All time');
+assert.equal(ctx.coverage(3600, 3600), 'fully recorded');
+assert.equal(ctx.coverage(0, 86400), 'nothing recorded yet');
+
 console.log('Readouts, offline and cold telemetry, decimal units, health scoring and graph ceilings pass.');

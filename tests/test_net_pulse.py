@@ -3,6 +3,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -254,6 +255,106 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(h['totalTx'], 4 * 500.0 * 16.0)
             # The same samples must total the same however coarsely they are bucketed.
             self.assertEqual(net.history(db, 3600, now)['totalRx'], h['totalRx'])
+            db.close()
+
+    def test_the_rollup_outlives_sample_retention(self):
+        # Samples are pruned after a week, so a month or a year of usage can
+        # only ever come from the hourly rollup.
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1757000000.0
+            old = now - 30 * 86400
+            net.record(db, old, 1000.0, 250.0, 10.0, 70.0, 'wlp2s0', 16.0)
+            net.record(db, now, 2000.0, 500.0, 10.0, 70.0, 'wlp2s0', 16.0)
+            # The second record is a month past the first, so retention is held
+            # back; force it with a continuous write to prove the rollup stays.
+            net.record(db, now + 15, 0.0, 0.0, None, None, 'wlp2s0', 15.0)
+            db.execute('DELETE FROM samples WHERE ts < ?', (now - 7 * 86400,))
+            db.commit()
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE ts=?', (old,)).fetchone()[0], 0)
+            month = net.usage(db, 2592000, now + 15)
+            self.assertAlmostEqual(month['totalRx'], 1000.0 * 16 + 2000.0 * 16)
+            self.assertAlmostEqual(month['totalTx'], 250.0 * 16 + 500.0 * 16)
+            db.close()
+
+    def test_a_new_rollup_is_backfilled_from_the_samples_already_kept(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1757000000.0
+            for i in range(4):
+                db.execute('INSERT INTO samples VALUES(?,?,?,?,?,?,?,?)',
+                           (now - 3000 + i * 16, 1000.0, 500.0, 10.0, 70.0, 'wlp2s0', 'a', 16.0))
+            db.execute('DROP TABLE usage')
+            db.commit()
+            db.close()
+            # Reopening is the upgrade path: the week of samples already on disk
+            # becomes the rollup rather than the usage tab starting at zero.
+            db = net.db_open()
+            day = net.usage(db, 86400, now)
+            self.assertAlmostEqual(day['totalRx'], 4 * 1000.0 * 16.0)
+            self.assertAlmostEqual(day['totalTx'], 4 * 500.0 * 16.0)
+            db.close()
+
+    def test_usage_totals_hold_across_every_range_and_bucket(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1757000000.0
+            for h in range(72):
+                hour = int((now - h * 3600) // 3600) * 3600
+                db.execute('INSERT INTO usage VALUES(?,?,?,?,?)', (hour, 'wlp2s0', 1e6, 2e5, 3600.0))
+            db.commit()
+            week = net.usage(db, 604800, now)
+            self.assertAlmostEqual(week['totalRx'], 72e6)
+            # However coarsely it is bucketed, the bars must sum to the total.
+            for seconds in (604800, 2592000, 31536000, 0):
+                u = net.usage(db, seconds, now)
+                self.assertAlmostEqual(sum(p[1] for p in u['points']), u['totalRx'], msg=str(seconds))
+                self.assertAlmostEqual(u['totalRx'], 72e6, msg=str(seconds))
+                self.assertLessEqual(len(u['points']), 60, str(seconds))
+            db.close()
+
+    def test_coverage_never_claims_more_time_than_passed(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1757000000.0
+            hour = int(now // 3600) * 3600
+            # Two interfaces busy in the same hour is one hour of recording.
+            for iface, rx in (('wlp2s0', 1e6), ('tailscale0', 4e5)):
+                db.execute('INSERT INTO usage VALUES(?,?,?,?,?)', (hour, iface, rx, 1e5, 3600.0))
+            db.commit()
+            day = net.usage(db, 86400, now)
+            self.assertLessEqual(day['recorded'], 3600.0)
+            self.assertLessEqual(day['recorded'], day['seconds'])
+            # Busiest interface first, so the heavy one is the row you read.
+            self.assertEqual([i[0] for i in day['ifaces']], ['wlp2s0', 'tailscale0'])
+            # A year of window with an hour of data must stay an hour of data.
+            self.assertLessEqual(net.usage(db, 31536000, now)['recorded'], 3600.0)
+            db.close()
+
+    def test_daily_buckets_start_at_local_midnight(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            now = 1757000000.0
+            for h in range(96):
+                hour = int((now - h * 3600) // 3600) * 3600
+                db.execute('INSERT INTO usage VALUES(?,?,?,?,?)', (hour, 'wlp2s0', 1e6, 1e5, 3600.0))
+            db.commit()
+            for point in net.usage(db, 2592000, now)['points'][1:]:
+                local = time.localtime(point[0])
+                self.assertEqual((local.tm_hour, local.tm_min), (0, 0), time.ctime(point[0]))
+            db.close()
+
+    def test_an_empty_database_still_answers_every_range(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(net, 'STATE', Path(d)):
+            db = net.db_open()
+            for seconds in net.USAGE_RANGES:
+                u = net.usage(db, seconds, 1757000000.0)
+                self.assertEqual(u['points'], [])
+                self.assertEqual(u['totalRx'], 0)
+                self.assertEqual(u['recorded'], 0)
+                self.assertIsNone(u['first'])
+                self.assertGreater(u['bucket'], 0)
+                self.assertGreater(u['seconds'], 0)
             db.close()
 
     def test_absent_latency_is_stored_as_null(self):

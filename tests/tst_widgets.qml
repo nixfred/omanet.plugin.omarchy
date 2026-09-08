@@ -12,6 +12,7 @@ TestCase {
 
     Pulse.HistoryGraph { id: graph; width: 700; height: 139 }
     Pulse.NetChip { id: chip; width: 28; height: 25; compact: true; animate: false }
+    Pulse.UsageGraph { id: usage; width: 700; height: 160 }
 
     // [ts, rxAvg, rxPeak, txAvg, latency, signal, count, boot]
     function test_hover_survives_an_emptied_history() {
@@ -53,6 +54,55 @@ TestCase {
         chip.visible = true
         tryVerify(function() { return chip.phase > frozen }, 2000)
         chip.animate = false
+    }
+
+    // [bucketStart, rxBytes, txBytes]
+    function test_usage_bars_survive_an_emptied_range() {
+        failOnWarning(/.*/)
+        usage.usageData = {points: [[3600, 4e6, 1e6], [7200, 8e6, 2e6]], seconds: 7200, bucket: 3600, start: 3600, now: 10800, peak: 1e7}
+        usage.hoverIndex = 1
+        compare(usage.hoverPoint[1], 8e6)
+        verify(usage.ceiling >= 1e7)
+        usage.usageData = {points: [], seconds: 7200, bucket: 3600, start: 3600, now: 10800, peak: 0}
+        compare(usage.hoverPoint, null)
+        usage.hoverIndex = 0
+        compare(usage.hoverPoint, null)
+        wait(30)
+    }
+
+    // A range with nothing in it still has to lay out an axis rather than
+    // divide by a zero span, a zero bucket or a zero ceiling.
+    function test_an_empty_usage_range_still_paints() {
+        failOnWarning(/.*/)
+        usage.usageData = {points: [], seconds: 0, bucket: 0, start: 0, now: 0, peak: 0}
+        wait(30)
+        verify(usage.span >= 1)
+        verify(usage.ceiling > 0)
+        verify(usage.barWidth() >= 1)
+    }
+
+    // One bucket as wide as the whole window must still be a visible bar.
+    function test_a_single_bucket_fills_the_plot() {
+        failOnWarning(/.*/)
+        usage.usageData = {points: [[0, 5e6, 5e5]], seconds: 3600, bucket: 3600, start: 0, now: 3600, peak: 5.5e6}
+        wait(30)
+        verify(usage.barWidth() > usage.plotWidth()*0.9)
+    }
+
+    // The label has to name the bucket at every width the collector emits.
+    function test_bucket_labels_follow_the_bucket_width() {
+        failOnWarning(/.*/)
+        var widths = [60, 3600, 21600, 86400, 604800]
+        for (var i = 0; i < widths.length; i++) {
+            usage.usageData = {points: [], seconds: widths[i]*4, bucket: widths[i], start: 1757000000, now: 1757000000 + widths[i]*4, peak: 0}
+            verify(usage.bucketLabel(1757000000).length > 0, 'bucket ' + widths[i] + ' has no label')
+            // The axis names an instant, never a span: a dash there reads as
+            // the whole window rather than as where it starts.
+            var axis = usage.axisLabel(1757000000)
+            verify(axis.length > 0, 'bucket ' + widths[i] + ' has no axis label')
+            compare(axis.indexOf('–'), -1, 'axis label for bucket ' + widths[i] + ' is a range')
+        }
+        wait(30)
     }
 
     function test_every_chip_kind_paints() {

@@ -18,10 +18,12 @@ Panel {
     readonly property string helper: String(Qt.resolvedUrl('net_pulse.py')).replace(/^file:\/\//,'')
     property var net: ({})
     property var histories: ({})
+    property var usages: ({})
     property int tab: 0
     property int page: 0
     property int wifiPage: 0
     property int range: 3600
+    property int usageRange: 86400
     property bool chooseMode: false
     property string actionStatus: ''
     property real now: Date.now()/1000
@@ -34,11 +36,13 @@ Panel {
     readonly property var rows: (net.talkers||{}).rows || []
     onRowsChanged: page = Math.min(page, Math.max(0, Math.ceil(rows.length/8)-1))
     readonly property var chart: histories[String(range)] || {points:[],seconds:range,now:now,bucket:15,count:0,peakRx:0,peakTx:0,peakLatency:0}
+    readonly property var usageChart: usages[String(usageRange)] || {points:[],seconds:Math.max(3600,usageRange),bucket:60,start:now-3600,now:now,totalRx:0,totalTx:0,peak:0,recorded:0,first:null,ifaces:[]}
+    readonly property real usageTotal: (usageChart.totalRx||0)+(usageChart.totalTx||0)
     readonly property var wifi: net.wifi || {}
     readonly property var ping: net.ping || {}
     readonly property var iface: net.iface || {}
     readonly property real openPanelIndicatorWidth: button.width-12
-    readonly property var tabs: ['Overview','Wi-Fi','Interfaces','Talkers','Network lab','About']
+    readonly property var tabs: ['Overview','Wi-Fi','Interfaces','Talkers','Data','Network lab','About']
     // Identity for the About tab. manifest.json is the single source of truth
     // for all three, so bumping a version or moving the repo is one edit there;
     // the constants are only the fallback for when the registry is unreachable.
@@ -46,7 +50,7 @@ Panel {
         var reg = bar && bar.shell ? bar.shell.pluginRegistry : null
         return reg && reg.installedPlugins ? (reg.installedPlugins[root.moduleName] || null) : null
     }
-    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.1.0'
+    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.2.0'
     readonly property string repoUrl: pluginManifest && pluginManifest.repository ? String(pluginManifest.repository) : 'https://github.com/nixfred/omanet.plugin.omarchy'
     readonly property string siteUrl: pluginManifest && pluginManifest.homepage ? String(pluginManifest.homepage) : 'https://nixfred.com'
 
@@ -177,9 +181,9 @@ Panel {
         root.close()
     }
     function status() {
-        return JSON.stringify({version:version,opened:opened,mode:mode,readout:Model.readout(net,mode),tint:String(tint),stale:stale,online:!!net.online,health:health,iface:iface.name||'',kind:chipKind,ssid:wifi.ssid||'',rx:(net.rates||{}).rx||0,tx:(net.rates||{}).tx||0,latency:ping.internet,samples:chart.count||0,tab:tab,chooseMode:chooseMode,networks:wifiRows.length,interfaces:(net.interfaces||[]).length,talkers:rows.length,wifiAction:wifiKind,action:actionStatus})
+        return JSON.stringify({version:version,opened:opened,mode:mode,readout:Model.readout(net,mode),tint:String(tint),stale:stale,online:!!net.online,health:health,iface:iface.name||'',kind:chipKind,ssid:wifi.ssid||'',rx:(net.rates||{}).rx||0,tx:(net.rates||{}).tx||0,latency:ping.internet,samples:chart.count||0,tab:tab,chooseMode:chooseMode,networks:wifiRows.length,interfaces:(net.interfaces||[]).length,talkers:rows.length,wifiAction:wifiKind,action:actionStatus,usageRange:usageRange,usedRx:usageChart.totalRx||0,usedTx:usageChart.totalTx||0,usedFor:usageChart.recorded||0})
     }
-    onOpenedChanged: { if(opened){ snapshotFile.reload(); historyFile.reload() } syncScanner() }
+    onOpenedChanged: { if(opened){ snapshotFile.reload(); historyFile.reload(); usageFile.reload() } syncScanner() }
     onTabChanged: { page=0; wifiPage=0; syncScanner(); if(panel && scroller) scroller.contentY=0 }
     onChooseModeChanged: syncScanner()
     onWifiDeviceChanged: syncScanner()
@@ -193,6 +197,11 @@ Panel {
         id:historyFile; path:root.stateDir+'/history.json'; watchChanges:true; printErrors:false
         onFileChanged:reload()
         onLoaded:{try{root.histories=JSON.parse(text())}catch(e){}}
+    }
+    FileView {
+        id:usageFile; path:root.stateDir+'/usage.json'; watchChanges:true; printErrors:false
+        onFileChanged:reload()
+        onLoaded:{try{root.usages=JSON.parse(text())}catch(e){}}
     }
     Timer { interval:2000; running:true; repeat:true; onTriggered:{root.now=Date.now()/1000; if(root.stale)snapshotFile.reload()} }
     Timer {
@@ -227,6 +236,7 @@ Panel {
         function display(value:int):void {root.setMode(value)}
         function showTab(value:int):void {root.tab=Model.clamp(value,0,root.tabs.length-1);root.chooseMode=false;root.open()}
         function historyRange(value:int):void {if([3600,86400,604800].indexOf(value)>=0)root.range=value}
+        function dataRange(value:int):void {if(Model.RANGES.indexOf(value)>=0){root.usageRange=value;root.tab=4;root.chooseMode=false;root.open()}}
         function rescan():void {root.runAction('rescan',[],'Scanning…')}
         function toggleNetwork():void {if(root.nmAvailable) Networking.wifiEnabled=!Networking.wifiEnabled}
     }
@@ -639,9 +649,57 @@ Panel {
                     }
                     Label{width:parent.width;wrapMode:Text.WordWrap;text:'Counts come from ss and are exact. Per-process bandwidth needs packet capture privileges, so it is not shown. Browser subprocesses lead to their browser window.';font.pixelSize:10}
                 }
-                // ------------------------------------------------------------ Network lab
+                // ------------------------------------------------------------ Data
                 Column {
                     width:parent.width;spacing:12;visible:root.tab===4;height:visible?implicitHeight:0
+                    Row {width:parent.width;spacing:8
+                        Repeater{model:Model.RANGES
+                            Action{required property var modelData;text:Model.rangeName(modelData);selected:root.usageRange===modelData;onClicked:root.usageRange=modelData}
+                        }
+                    }
+                    Grid{width:parent.width;columns:4;spacing:8
+                        Stat{width:(mainColumn.width-24)/4;height:80;label:'DOWNLOADED';value:Model.size(root.usageChart.totalRx)
+                            hint:Model.pace(root.usageChart.totalRx,root.usageChart.recorded)}
+                        Stat{width:(mainColumn.width-24)/4;height:80;label:'UPLOADED';value:Model.size(root.usageChart.totalTx)
+                            hint:Model.pace(root.usageChart.totalTx,root.usageChart.recorded)}
+                        Stat{width:(mainColumn.width-24)/4;height:80;label:'TOTAL';value:Model.size(root.usageTotal)
+                            hint:root.usageTotal>0?Math.round((root.usageChart.totalRx||0)/root.usageTotal*100)+'% down  ·  '+Math.round((root.usageChart.totalTx||0)/root.usageTotal*100)+'% up':'nothing moved yet'}
+                        Stat{width:(mainColumn.width-24)/4;height:80;label:'RECORDED';value:(root.usageChart.recorded||0)<60?'—':Model.ago(root.usageChart.recorded)
+                            hint:root.usageChart.first?'recording since '+Qt.formatDate(new Date(root.usageChart.first*1000),'d MMM yyyy'):'no history yet'}
+                    }
+                    Rectangle{width:parent.width;height:184;radius:14;color:'#0f1a22';border.color:'#22323d'
+                        UsageGraph{anchors.fill:parent;anchors.margins:11;usageData:root.usageChart;tint:root.tint
+                            visible:(root.usageChart.points||[]).length>0}
+                        Label{anchors.centerIn:parent;visible:(root.usageChart.points||[]).length===0
+                            text:'Nothing recorded in '+Model.rangeWhen(root.usageRange)+' yet.'}
+                    }
+                    Row{width:parent.width
+                        Heading{text:'BY INTERFACE';font.pixelSize:13;width:parent.width/2}
+                        Label{width:parent.width/2;horizontalAlignment:Text.AlignRight;font.pixelSize:10
+                            text:'↓ download   ↑ upload  ·  '+Model.coverage(root.usageChart.recorded,root.usageChart.seconds)}
+                    }
+                    Column{width:parent.width;spacing:6
+                        Repeater{model:root.usageChart.ifaces||[]
+                            Item{id:usageRow;required property var modelData;width:parent.width;height:34
+                                readonly property real total:(modelData[1]||0)+(modelData[2]||0)
+                                Rectangle{anchors.fill:parent;radius:9;color:'#101c26';border.color:'#22323d'}
+                                // The fill is the interface's share of the range, so one
+                                // busy tunnel is obvious without reading the numbers.
+                                Rectangle{height:parent.height;radius:9;color:Qt.alpha(root.tint,0.16)
+                                    width:Math.max(3,parent.width*(root.usageTotal>0?usageRow.total/root.usageTotal:0))}
+                                Label{x:12;anchors.verticalCenter:parent.verticalCenter;color:'#e4edf0';font.pixelSize:12;text:usageRow.modelData[0]}
+                                Label{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;font.pixelSize:11
+                                    text:'↓ '+Model.size(usageRow.modelData[1])+'    ↑ '+Model.size(usageRow.modelData[2])+'    ·    '+Model.size(usageRow.total)}
+                            }
+                        }
+                        Label{visible:(root.usageChart.ifaces||[]).length===0;text:'No interface has moved anything in this range.';font.pixelSize:11}
+                    }
+                    Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10
+                        text:'Totals are the bytes this machine actually moved, summed from the rate over each recorded interval — not counters since boot, so a reboot does not reset them. The last hour comes from 15-second samples; longer ranges come from an hourly rollup kept for five years. Nothing is recorded while the collector is stopped, and that missing time is left out of the averages rather than counted as idle.'}
+                }
+                // ------------------------------------------------------------ Network lab
+                Column {
+                    width:parent.width;spacing:12;visible:root.tab===5;height:visible?implicitHeight:0
                     Rectangle{width:parent.width;height:dnsCol.implicitHeight+28;radius:14;color:'#121b2c';border.color:'#303a57'
                         Column{id:dnsCol;anchors.fill:parent;anchors.margins:14;spacing:9
                             Item{width:parent.width;height:30
@@ -714,12 +772,12 @@ Panel {
                 }
                 // ------------------------------------------------------------ About
                 Column {
-                    width:parent.width;spacing:12;visible:root.tab===5;height:visible?implicitHeight:0
+                    width:parent.width;spacing:12;visible:root.tab===6;height:visible?implicitHeight:0
                     Rectangle{width:parent.width;height:aboutCol.implicitHeight+28;radius:14;color:'#121b2c';border.color:'#303a57'
                         Column{id:aboutCol;anchors.fill:parent;anchors.margins:14;spacing:12
                             Row{width:parent.width;spacing:14
                                 NetChip{width:64;height:64;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint
-                                    animate:root.opened&&root.tab===5&&!root.stale&&root.setting('animated',true)}
+                                    animate:root.opened&&root.tab===6&&!root.stale&&root.setting('animated',true)}
                                 Column{anchors.verticalCenter:parent.verticalCenter;spacing:5
                                     Heading{text:'Net Pulse';font.pixelSize:20;font.letterSpacing:2}
                                     Label{text:'Version '+root.version+'   ·   MIT licence   ·   Fred Nix';font.pixelSize:11}
