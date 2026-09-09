@@ -30,7 +30,7 @@ Panel {
     readonly property bool stale: !net.ts || now-net.ts > 12
     readonly property int mode: Model.clamp(setting('displayMode',0),0,4)
     readonly property real health: stale ? 50 : Model.health(net)
-    readonly property color tint: stale ? '#71838c' : Model.ramp(health)
+    readonly property color tint: stale ? Color.muted : Model.ramp(health)
     readonly property string chipKind: stale || !net.online ? 'offline' : (Model.isWifi(net) ? 'wifi' : 'ethernet')
     readonly property real activity: Model.clamp(((net.rates||{}).rx||0)/8e6, 0, 1)
     readonly property var rows: (net.talkers||{}).rows || []
@@ -50,9 +50,35 @@ Panel {
         var reg = bar && bar.shell ? bar.shell.pluginRegistry : null
         return reg && reg.installedPlugins ? (reg.installedPlugins[root.moduleName] || null) : null
     }
-    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.3.0'
+    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.4.0'
     readonly property string repoUrl: pluginManifest && pluginManifest.repository ? String(pluginManifest.repository) : 'https://github.com/nixfred/omanet.plugin.omarchy'
     readonly property string siteUrl: pluginManifest && pluginManifest.homepage ? String(pluginManifest.homepage) : 'https://nixfred.com'
+
+    // ---- Theme surfaces. The dashboard follows the Omarchy theme: the popup
+    // roles for background and text, the accent for anything interactive, and
+    // urgent for anything wrong. Cards, rules and dim labels are the theme's
+    // background lifted toward its own text rather than fixed slate, so they
+    // hold up on a light theme too. The chip's health tint is the deliberate
+    // exception: red-amber-green is a reading, not decoration, and it is what
+    // makes this widget a sibling of CPU Pulse and RAM Pulse beside it.
+    readonly property color themeFg: bar ? bar.foreground : Color.foreground
+    readonly property color themeAccent: Color.accent
+    readonly property color themeUrgent: bar ? bar.urgent : Color.urgent
+    readonly property color panelBg: Color.popups.background
+    readonly property color panelText: Color.popups.text
+    readonly property color surface: Model.mix(panelBg, panelText, 0.05)
+    readonly property color surfaceRaised: Model.mix(panelBg, panelText, 0.08)
+    readonly property color surfaceHot: Model.mix(panelBg, panelText, 0.12)
+    readonly property color accentSurface: Model.mix(panelBg, themeAccent, 0.12)
+    readonly property color accentBorder: Model.mix(panelBg, themeAccent, 0.34)
+    readonly property color accentHot: Model.mix(themeAccent, panelText, 0.45)
+    readonly property color cardBorder: Model.mix(panelBg, Color.popups.border, 0.5)
+    readonly property color hairline: Model.mix(panelBg, panelText, 0.17)
+    readonly property color hairlineHot: Model.mix(panelBg, panelText, 0.33)
+    readonly property color gridLine: Model.mix(panelBg, panelText, 0.12)
+    readonly property color bodyText: Color.muted
+    readonly property color dimText: Model.mix(panelBg, Color.muted, 0.72)
+    readonly property color captionText: Model.mix(panelBg, panelText, 0.78)
 
     // ---- NetworkManager objects for Wi-Fi actions (passphrases never touch argv)
     readonly property bool nmAvailable: Networking.backend === NetworkBackendType.NetworkManager
@@ -252,7 +278,7 @@ Panel {
         onPressed:function(b){if(b===Qt.RightButton){root.chooseMode=true;root.open()}else{root.chooseMode=false;root.toggle()}}
         Row {
             id:barRow;anchors.centerIn:parent;spacing:4
-            NetChip {compact:true;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:!root.stale && root.setting('animated',true)}
+            NetChip {compact:true;body:Color.bar.background;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:!root.stale && root.setting('animated',true)}
             Column {
                 anchors.verticalCenter:parent.verticalCenter
                 // Both lines hold the width of the widest reading their mode can
@@ -265,21 +291,21 @@ Panel {
             }
         }
     }
-    component Label: Text { color:'#91a5b0';font.pixelSize:12;textFormat:Text.PlainText }
-    component Heading: Text { color:'#eff7fa';font.pixelSize:15;font.bold:true;textFormat:Text.PlainText }
+    component Label: Text { color:root.bodyText;font.pixelSize:12;textFormat:Text.PlainText }
+    component Heading: Text { color:root.panelText;font.pixelSize:15;font.bold:true;textFormat:Text.PlainText }
     component Action: Rectangle {
         id:act
         property string text:''
         property bool selected:false
         property bool enabled:true
-        property color accent:root.tint
+        property color accent:root.themeAccent
         signal clicked()
         implicitWidth:caption.implicitWidth+26;implicitHeight:34
-        radius:9;color:act.selected?Qt.alpha(accent,0.18):area.containsMouse&&act.enabled?'#22333f':'#14222b'
-        border.color:act.selected?accent:area.containsMouse&&act.enabled?'#536a76':'#2a3b47'
+        radius:9;color:act.selected?Qt.alpha(accent,0.18):area.containsMouse&&act.enabled?root.surfaceHot:root.surface
+        border.color:act.selected?accent:area.containsMouse&&act.enabled?root.hairlineHot:root.hairline
         opacity:act.enabled?1:0.45
         Behavior on color {ColorAnimation{duration:120}}
-        Text{id:caption;anchors.centerIn:parent;text:act.text;color:act.selected?'#ffffff':'#c3d3dc';font.pixelSize:12;font.bold:act.selected;textFormat:Text.PlainText}
+        Text{id:caption;anchors.centerIn:parent;text:act.text;color:act.selected?root.panelText:root.captionText;font.pixelSize:12;font.bold:act.selected;textFormat:Text.PlainText}
         MouseArea{id:area;anchors.fill:parent;hoverEnabled:true;cursorShape:act.enabled?Qt.PointingHandCursor:Qt.ArrowCursor;onClicked:if(act.enabled)act.clicked()}
     }
     component Stat: Rectangle {
@@ -292,8 +318,8 @@ Panel {
         property int elideMode: Text.ElideRight
         readonly property bool copyable: copyText !== ''
         radius:12
-        color:stat.copyable&&statArea.containsMouse?'#17262f':'#111e28'
-        border.color:stat.copyable&&statArea.containsMouse?Qt.alpha(root.tint,0.6):'#253744'
+        color:stat.copyable&&statArea.containsMouse?root.surfaceHot:root.surface
+        border.color:stat.copyable&&statArea.containsMouse?Qt.alpha(root.themeAccent,0.6):root.hairline
         Behavior on color {ColorAnimation{duration:110}}
         Column {anchors.fill:parent;anchors.margins:12;spacing:5
             Label{text:stat.label;font.pixelSize:10;font.letterSpacing:1}
@@ -302,7 +328,7 @@ Panel {
                 fontSizeMode:Text.HorizontalFit;minimumPixelSize:10}
             Label{text:stat.hint;font.pixelSize:10;width:parent.width;elide:Text.ElideRight}
         }
-        Text{visible:stat.copyable&&statArea.containsMouse;text:'⧉';color:root.tint;font.pixelSize:12;textFormat:Text.PlainText
+        Text{visible:stat.copyable&&statArea.containsMouse;text:'⧉';color:root.themeAccent;font.pixelSize:12;textFormat:Text.PlainText
             anchors.right:parent.right;anchors.top:parent.top;anchors.rightMargin:8;anchors.topMargin:6}
         MouseArea{id:statArea;anchors.fill:parent;hoverEnabled:stat.copyable;enabled:stat.copyable
             cursorShape:Qt.PointingHandCursor;onClicked:root.copy(stat.copyText,stat.copyWhat)}
@@ -316,14 +342,14 @@ Panel {
         property string copyWhat:''
         readonly property bool copyable: Model.isAddress(node.value)
         radius:10
-        color:node.copyable&&nodeArea.containsMouse?'#17262f':'#101c26'
-        border.color:node.copyable&&nodeArea.containsMouse?root.tint:node.ok?Qt.alpha(root.tint,0.5):'#7a3a4a'
+        color:node.copyable&&nodeArea.containsMouse?root.surfaceHot:root.surface
+        border.color:node.copyable&&nodeArea.containsMouse?root.tint:node.ok?Qt.alpha(root.tint,0.5):root.themeUrgent
         Behavior on color {ColorAnimation{duration:110}}
         Column{anchors.centerIn:parent;spacing:3;width:parent.width-16
             Label{text:node.label;font.pixelSize:9;font.letterSpacing:1;horizontalAlignment:Text.AlignHCenter;width:parent.width}
             Heading{text:node.value;font.pixelSize:12;horizontalAlignment:Text.AlignHCenter;width:parent.width;elide:Text.ElideMiddle
                 fontSizeMode:Text.HorizontalFit;minimumPixelSize:9}
-            Label{text:node.hint;font.pixelSize:9;horizontalAlignment:Text.AlignHCenter;width:parent.width;elide:Text.ElideRight;color:node.ok?'#91a5b0':'#f0ba82'}
+            Label{text:node.hint;font.pixelSize:9;horizontalAlignment:Text.AlignHCenter;width:parent.width;elide:Text.ElideRight;color:node.ok?root.bodyText:root.themeUrgent}
         }
         MouseArea{id:nodeArea;anchors.fill:parent;hoverEnabled:node.copyable;enabled:node.copyable
             cursorShape:Qt.PointingHandCursor;onClicked:root.copy(node.value,node.copyWhat)}
@@ -333,13 +359,13 @@ Panel {
         property string label:''
         property string url:''
         height:38;radius:10
-        color:linkArea.containsMouse?'#17262f':'#101c26'
-        border.color:linkArea.containsMouse?root.tint:'#253744'
+        color:linkArea.containsMouse?root.surfaceHot:root.surface
+        border.color:linkArea.containsMouse?root.themeAccent:root.hairline
         Behavior on color {ColorAnimation{duration:110}}
         Label{anchors.left:parent.left;anchors.leftMargin:12;anchors.verticalCenter:parent.verticalCenter
             text:link.label;font.pixelSize:10;font.letterSpacing:1}
         Text{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter
-            text:link.url;color:linkArea.containsMouse?'#dfe4ff':'#b6c0fb';font.pixelSize:11;textFormat:Text.PlainText}
+            text:link.url;color:linkArea.containsMouse?root.accentHot:root.themeAccent;font.pixelSize:11;textFormat:Text.PlainText}
         MouseArea{id:linkArea;anchors.fill:parent;hoverEnabled:true;cursorShape:Qt.PointingHandCursor
             acceptedButtons:Qt.LeftButton|Qt.RightButton
             onClicked:function(event){if(event.button===Qt.RightButton)root.copy(link.url,'the link to');else root.openUrl(link.url)}}
@@ -356,7 +382,7 @@ Panel {
                 if(event.key===Qt.Key_Right && !root.chooseMode){root.tab=Math.min(root.tabs.length-1,root.tab+1);event.accepted=true}
                 if(root.chooseMode && event.key>=Qt.Key_1 && event.key<=Qt.Key_5){root.setMode(event.key-Qt.Key_1);event.accepted=true}
             }
-            Rectangle {anchors.fill:parent;anchors.margins:-10;radius:14;color:'#0b141d'}
+            Rectangle {anchors.fill:parent;anchors.margins:-10;radius:14;color:root.panelBg}
             Column {
                 id:modeColumn;width:parent.width;spacing:12;visible:root.chooseMode
                 Heading{text:'BAR READOUT';font.letterSpacing:1.5}
@@ -398,7 +424,7 @@ Panel {
                             Rectangle {width:6;height:6;radius:3;color:root.tint;anchors.verticalCenter:parent.verticalCenter
                                 SequentialAnimation on opacity {running:root.opened&&!root.stale;loops:Animation.Infinite;NumberAnimation{to:0.3;duration:900}NumberAnimation{to:1;duration:900}}
                             }
-                            Label{text:root.stale?'WAITING FOR TELEMETRY':Model.healthLabel(root.net);color:'#e4edf0';font.pixelSize:9;font.bold:true}
+                            Label{text:root.stale?'WAITING FOR TELEMETRY':Model.healthLabel(root.net);color:root.panelText;font.pixelSize:9;font.bold:true}
                         }
                     }
                 }
@@ -413,18 +439,18 @@ Panel {
                     height:visible?implicitHeight:0
                     Rectangle {
                         width:parent.width;height:170;radius:16;border.color:Qt.alpha(root.tint,0.45)
-                        gradient:Gradient {GradientStop{position:0;color:Qt.alpha(root.tint,0.13)}GradientStop{position:1;color:'#111d27'}}
-                        NetChip {x:12;y:5;width:160;height:160;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:root.opened&&root.tab===0&&!root.stale&&root.setting('animated',true)}
+                        gradient:Gradient {GradientStop{position:0;color:Qt.alpha(root.tint,0.13)}GradientStop{position:1;color:root.surface}}
+                        NetChip {x:12;y:5;width:160;height:160;body:root.surfaceRaised;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:root.opened&&root.tab===0&&!root.stale&&root.setting('animated',true)}
                         Column {x:188;y:18;spacing:5;width:parent.width-330
                             Label{text:'DOWNLOAD  ·  UPLOAD';font.pixelSize:11;font.letterSpacing:2}
                             Row {spacing:14
-                                Text {text:root.stale||!root.net.online?'—':Model.rate((root.net.rates||{}).rx);color:'#f4fafc';font.pixelSize:42;font.weight:Font.Light}
-                                Text {text:root.stale||!root.net.online?'':'↑ '+Model.rate((root.net.rates||{}).tx);color:'#8d9dff';font.pixelSize:20;font.weight:Font.Light;anchors.bottom:parent.bottom;anchors.bottomMargin:8;textFormat:Text.PlainText}
+                                Text {text:root.stale||!root.net.online?'—':Model.rate((root.net.rates||{}).rx);color:root.panelText;font.pixelSize:42;font.weight:Font.Light}
+                                Text {text:root.stale||!root.net.online?'':'↑ '+Model.rate((root.net.rates||{}).tx);color:root.themeAccent;font.pixelSize:20;font.weight:Font.Light;anchors.bottom:parent.bottom;anchors.bottomMargin:8;textFormat:Text.PlainText}
                             }
-                            Label{text:root.stale?'Waiting for the net-pulse service.':!root.net.online?'No default route. Nothing is carrying traffic to the internet.':(Model.isWifi(root.net)?root.wifi.ssid+'  ·  '+(root.wifi.band||'')+(root.wifi.channel?' channel '+root.wifi.channel:''):(root.iface.connection||Model.kindName(root.iface.kind)))+'  ·  '+root.iface.name+'  ·  '+((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]||'no address').split('/')[0];color:'#c4d6dc';width:parent.width;elide:Text.ElideRight}
+                            Label{text:root.stale?'Waiting for the net-pulse service.':!root.net.online?'No default route. Nothing is carrying traffic to the internet.':(Model.isWifi(root.net)?root.wifi.ssid+'  ·  '+(root.wifi.band||'')+(root.wifi.channel?' channel '+root.wifi.channel:''):(root.iface.connection||Model.kindName(root.iface.kind)))+'  ·  '+root.iface.name+'  ·  '+((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]||'no address').split('/')[0];color:root.panelText;width:parent.width;elide:Text.ElideRight}
                             Label{text:root.net.online?'Gateway '+(root.iface.gateway||'—')+' · '+Model.ms(root.ping.gateway)+'    Internet '+(root.ping.probe||'1.1.1.1')+' · '+Model.ms(root.ping.internet)+(Model.num(root.ping.loss)>0?'  ·  '+Model.whole(root.ping.loss)+' loss':'')+'    ·  click any address to copy it':'Pings pause until a route appears.';font.pixelSize:10}
                         }
-                        Text {anchors.right:parent.right;anchors.rightMargin:20;anchors.top:parent.top;anchors.topMargin:22;horizontalAlignment:Text.AlignRight;color:Qt.alpha('#edf7fa',0.5);font.pixelSize:15;textFormat:Text.PlainText
+                        Text {anchors.right:parent.right;anchors.rightMargin:20;anchors.top:parent.top;anchors.topMargin:22;horizontalAlignment:Text.AlignRight;color:Qt.alpha(root.panelText,0.5);font.pixelSize:15;textFormat:Text.PlainText
                             text:root.stale||!root.net.online?'':Model.isWifi(root.net)?Model.whole(root.wifi.quality)+'\nsignal':Model.mbit(root.iface.speed)+'\nlink'}
                     }
                     Row {width:parent.width;spacing:10
@@ -435,7 +461,7 @@ Panel {
                             copyText:Model.bare((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]);copyWhat:'this address'}
                         Stat{width:(parent.width-30)/4;height:96;label:'CONNECTIVITY';value:root.net.online?String(root.net.connectivity||'unknown').replace(/^./,function(c){return c.toUpperCase()}):'Offline';hint:'DNS via '+((root.net.dns||{}).provider||'—')+' · '+String(root.net.nmState||'')}
                     }
-                    Rectangle {width:parent.width;height:242;radius:14;color:'#101c26';border.color:'#273843'
+                    Rectangle {width:parent.width;height:242;radius:14;color:root.surface;border.color:root.hairline
                         Column {anchors.fill:parent;anchors.margins:14;spacing:9
                             Item {width:parent.width;height:30
                                 Heading{anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter;text:'CONTINUOUS HISTORY';font.pixelSize:12}
@@ -445,26 +471,27 @@ Panel {
                                     }
                                 }
                             }
-                            HistoryGraph{width:parent.width;height:139;historyData:root.chart;tint:root.tint}
+                            HistoryGraph{width:parent.width;height:139;historyData:root.chart;tint:root.tint
+                            latencyTint:root.themeUrgent;upTint:root.themeAccent;axisText:root.dimText;gridLine:root.gridLine;tipBackground:Color.tooltip.background;tipBorder:Color.tooltip.border;tipText:Color.tooltip.text}
                             Row{spacing:14
                                 Label{text:'━ Download';color:root.tint;font.pixelSize:10}
-                                Label{text:'━ Upload';color:'#8d9dff';font.pixelSize:10}
-                                Label{text:'┅ Latency';color:'#f0ba82';font.pixelSize:10}
+                                Label{text:'━ Upload';color:root.themeAccent;font.pixelSize:10}
+                                Label{text:'┅ Latency';color:root.themeUrgent;font.pixelSize:10}
                                 Label{text:'Peak ↓ '+Model.rate(root.chart.peakRx)+'  ·  ↓ '+Model.size(root.chart.totalRx)+' ↑ '+Model.size(root.chart.totalTx)+' in range  ·  '+(root.chart.count||0)+' samples';font.pixelSize:10}
                             }
                             Label{text:(root.chart.count||0)<2?'History is starting. Samples accumulate every 15 seconds.':'Recording while closed · 7-day retention · hover to inspect · faint line = download peaks';font.pixelSize:10}
                         }
                     }
-                    Rectangle {width:parent.width;height:112;radius:14;color:'#121b2c';border.color:'#303a57'
+                    Rectangle {width:parent.width;height:112;radius:14;color:root.surfaceRaised;border.color:root.cardBorder
                         Column{anchors.fill:parent;anchors.margins:14;spacing:9
                             Heading{text:'PATH TO THE INTERNET';font.pixelSize:12}
                             Row{width:parent.width;spacing:0
                                 Node{width:(parent.width-3*22)/4;height:60;label:'THIS DEVICE';value:Model.bare((root.iface.addrs4||[])[0]||(root.iface.addrs6||[])[0]||'—');hint:root.iface.name?root.iface.name+' · '+(root.iface.mac||''):'no interface';ok:!!root.net.online;copyWhat:'this address'}
-                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.tint;font.pixelSize:16}
+                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.themeAccent;font.pixelSize:16}
                                 Node{width:(parent.width-3*22)/4;height:60;label:'GATEWAY';value:root.iface.gateway||'—';hint:Model.ms(root.ping.gateway)+' round trip';ok:Model.num(root.ping.gateway)>=0||!Model.has(root.ping.gateway);copyWhat:'the gateway'}
-                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.tint;font.pixelSize:16}
+                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.themeAccent;font.pixelSize:16}
                                 Node{width:(parent.width-3*22)/4;height:60;label:'DNS';value:currentDns();hint:((root.net.dns||{}).provider||'—')+' · '+dnsCount()+' servers';ok:true;copyWhat:'the resolver'}
-                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.tint;font.pixelSize:16}
+                                Label{text:'→';width:22;horizontalAlignment:Text.AlignHCenter;anchors.verticalCenter:parent.verticalCenter;color:root.themeAccent;font.pixelSize:16}
                                 Node{width:(parent.width-3*22)/4;height:60;label:'INTERNET';value:root.ping.probe||'1.1.1.1';hint:Model.ms(root.ping.internet)+' round trip · '+String(root.net.connectivity||'unknown');ok:Model.num(root.ping.internet)>=0||!Model.has(root.ping.internet);copyWhat:'the probe target'}
                             }
                         }
@@ -481,18 +508,18 @@ Panel {
                             Action{text:'Share QR';enabled:Model.isWifi(root.net);implicitHeight:30;onClicked:root.summon('omarchy.wifiqr',{iface:root.iface.name,ssid:root.wifi.ssid})}
                         }
                     }
-                    Rectangle{visible:!root.wifiDevice;width:parent.width;height:visible?70:0;radius:12;color:'#111e28';border.color:'#253744'
+                    Rectangle{visible:!root.wifiDevice;width:parent.width;height:visible?70:0;radius:12;color:root.surface;border.color:root.hairline
                         Label{anchors.centerIn:parent;text:root.nmAvailable?'No Wi-Fi radio is known to NetworkManager on this machine.':'NetworkManager is not available; Wi-Fi controls are inert.'}
                     }
                     Rectangle {visible:Model.isWifi(root.net);width:parent.width;height:visible?196:0;radius:16;border.color:Qt.alpha(root.tint,0.45)
-                        gradient:Gradient {GradientStop{position:0;color:Qt.alpha(root.tint,0.10)}GradientStop{position:1;color:'#111d27'}}
+                        gradient:Gradient {GradientStop{position:0;color:Qt.alpha(root.tint,0.10)}GradientStop{position:1;color:root.surface}}
                         Column{anchors.fill:parent;anchors.margins:14;spacing:10
                             Row{width:parent.width
                                 Column{width:parent.width-260;spacing:3
                                     Heading{text:root.wifi.ssid||'—';font.pixelSize:18;width:parent.width;elide:Text.ElideRight}
                                     Label{text:(root.wifi.bssid||'').toUpperCase()+'  ·  '+Model.security(root.wifi.security)+'  ·  '+(root.wifi.generation||'')+'  ·  '+(root.iface.driver||'');font.pixelSize:10}
                                 }
-                                Label{text:'connected '+Model.ago(root.wifi.connectedSeconds);width:260;horizontalAlignment:Text.AlignRight;color:'#c4d6dc'}
+                                Label{text:'connected '+Model.ago(root.wifi.connectedSeconds);width:260;horizontalAlignment:Text.AlignRight;color:root.panelText}
                             }
                             Grid{width:parent.width;columns:3;spacing:10
                                 Stat{width:(parent.width-20)/3;height:62;label:'SIGNAL';value:Model.dbm(root.wifi.signal)+'  ·  '+Model.whole(root.wifi.quality);hint:'average '+Model.dbm(root.wifi.signalAvg)+' · tx power '+(Model.has(root.wifi.txPower)?root.wifi.txPower+' dBm':'—')}
@@ -523,20 +550,20 @@ Panel {
                             readonly property bool busy:root.wifiKind!==''&&root.wifiSsid===modelData.ssid
                             readonly property bool enterprise:Model.security(modelData.security)==='Enterprise'
                             width:mainColumn.width;height:prompting?92:58;radius:10
-                            color:wmouse.containsMouse||prompting?'#1d303b':'#111e28';border.color:modelData.connected?root.tint:wmouse.containsMouse?'#536a76':'#263844'
+                            color:wmouse.containsMouse||prompting?root.surfaceHot:root.surface;border.color:modelData.connected?root.themeAccent:wmouse.containsMouse?root.hairlineHot:root.hairline
                             Behavior on height{NumberAnimation{duration:140}}
                             // Declared first so every button below sits above it.
                             MouseArea{id:wmouse;x:0;y:0;width:parent.width;height:58;hoverEnabled:true;cursorShape:Qt.PointingHandCursor;onClicked:root.rowClicked(wrow.modelData)}
-                            Rectangle{x:12;y:44;width:(parent.width-24)*Model.clamp(wrow.modelData.signal/100,0,1);height:2;radius:1;color:wrow.modelData.connected?root.tint:'#4d6b7a'}
-                            Label{x:12;y:19;text:Model.whole(wrow.modelData.signal);font.pixelSize:12;color:wrow.modelData.connected?root.tint:'#91a5b0';width:34}
+                            Rectangle{x:12;y:44;width:(parent.width-24)*Model.clamp(wrow.modelData.signal/100,0,1);height:2;radius:1;color:wrow.modelData.connected?root.themeAccent:root.dimText}
+                            Label{x:12;y:19;text:Model.whole(wrow.modelData.signal);font.pixelSize:12;color:wrow.modelData.connected?root.themeAccent:root.bodyText;width:34}
                             Column{x:52;y:9;spacing:4;width:parent.width-300
-                                Heading{text:(wrow.modelData.hidden?'Hidden network':wrow.modelData.ssid)+(wrow.modelData.aps>1?'  ·  '+wrow.modelData.aps+' access points':'');font.pixelSize:13;width:parent.width;elide:Text.ElideRight;color:wrow.modelData.hidden?'#91a5b0':'#eff7fa'}
+                                Heading{text:(wrow.modelData.hidden?'Hidden network':wrow.modelData.ssid)+(wrow.modelData.aps>1?'  ·  '+wrow.modelData.aps+' access points':'');font.pixelSize:13;width:parent.width;elide:Text.ElideRight;color:wrow.modelData.hidden?root.bodyText:root.panelText}
                                 Label{text:Model.security(wrow.modelData.security)+(wrow.modelData.band?'  ·  '+(wrow.modelData.bands&&wrow.modelData.bands.length>1?wrow.modelData.bands.join(' + '):wrow.modelData.band):'')+(wrow.modelData.channel?'  ·  CH '+wrow.modelData.channel:'')+(wrow.modelData.rate?'  ·  up to '+Model.mbit(wrow.modelData.rate):'')+(wrow.modelData.width?'  ·  '+wrow.modelData.width+' MHz':'');font.pixelSize:10;width:parent.width;elide:Text.ElideRight}
                             }
                             Row{anchors.right:parent.right;anchors.rightMargin:12;y:12;spacing:8
                                 Label{visible:wrow.modelData.known&&!wrow.modelData.connected&&!wrow.busy;text:'saved';font.pixelSize:10;anchors.verticalCenter:parent.verticalCenter}
                                 Action{visible:wrow.modelData.known&&!wrow.modelData.connected&&!wrow.busy&&root.wifiKind==='';text:'Forget';implicitHeight:28;implicitWidth:66;onClicked:root.wifiAct('forget',wrow.modelData.ssid)}
-                                Label{text:wrow.busy?(root.wifiKind==='connect'?'Connecting…':root.wifiKind==='disconnect'?'Disconnecting…':'Forgetting…'):wrow.modelData.connected?'Connected  ·  disconnect ⏏':wrow.modelData.hidden?'':wrow.modelData.known?'connect ↗':wrow.enterprise?'set up 🔐':root.needsPassphrase(wrow.modelData)?'passphrase 🔒':'open · connect ↗';color:wrow.modelData.connected?root.tint:'#c3d3dc';font.pixelSize:11;anchors.verticalCenter:parent.verticalCenter}
+                                Label{text:wrow.busy?(root.wifiKind==='connect'?'Connecting…':root.wifiKind==='disconnect'?'Disconnecting…':'Forgetting…'):wrow.modelData.connected?'Connected  ·  disconnect ⏏':wrow.modelData.hidden?'':wrow.modelData.known?'connect ↗':wrow.enterprise?'set up 🔐':root.needsPassphrase(wrow.modelData)?'passphrase 🔒':'open · connect ↗';color:wrow.modelData.connected?root.themeAccent:root.captionText;font.pixelSize:11;anchors.verticalCenter:parent.verticalCenter}
                             }
                             Column{visible:wrow.prompting;x:52;y:54;width:parent.width-64;spacing:6
                                 Row{width:parent.width;spacing:8
@@ -564,7 +591,7 @@ Panel {
                         Heading{text:'EVERY INTERFACE';width:parent.width-260;font.pixelSize:13}
                         Label{text:(root.net.interfaces||[]).length+' links · loopback hidden';font.pixelSize:10;width:260;horizontalAlignment:Text.AlignRight}
                     }
-                    Rectangle{visible:!(root.net.interfaces||[]).some(function(i){return i.kind==='ethernet'});width:parent.width;height:visible?44:0;radius:10;color:'#111e28';border.color:'#253744'
+                    Rectangle{visible:!(root.net.interfaces||[]).some(function(i){return i.kind==='ethernet'});width:parent.width;height:visible?44:0;radius:10;color:root.surface;border.color:root.hairline
                         Label{anchors.centerIn:parent;text:'No wired Ethernet adapter is present. A USB or dock adapter appears here the moment the kernel sees it.';font.pixelSize:11}
                     }
                     Repeater{
@@ -580,14 +607,14 @@ Panel {
                             readonly property string actionUuid:managed?modelData.nm.uuid:(profiles.length?profiles[0].uuid:'')
                             readonly property string actionName:managed?modelData.nm.connection:(profiles.length?profiles[0].name:'')
                             readonly property bool connected:modelData.nm&&String(modelData.nm.state||'').indexOf('connected')===0
-                            width:mainColumn.width;height:col.implicitHeight+28;radius:14;color:modelData.active?'#101c26':'#0f1922';border.color:modelData.active?Qt.alpha(root.tint,0.5):'#273843'
+                            width:mainColumn.width;height:col.implicitHeight+28;radius:14;color:modelData.active?root.surfaceRaised:root.surface;border.color:modelData.active?Qt.alpha(root.themeAccent,0.5):root.hairline
                             Column{id:col;anchors.fill:parent;anchors.margins:14;spacing:10
                                 Row{width:parent.width
                                     Column{width:parent.width-250;spacing:3
-                                        Heading{text:card.modelData.name+'  ·  '+Model.kindName(card.modelData.kind)+(card.modelData.active?'  ·  default route':'');font.pixelSize:14;color:card.modelData.active?'#eff7fa':'#c3d3dc'}
+                                        Heading{text:card.modelData.name+'  ·  '+Model.kindName(card.modelData.kind)+(card.modelData.active?'  ·  default route':'');font.pixelSize:14;color:card.modelData.active?root.panelText:root.captionText}
                                         Label{text:(card.modelData.nm&&card.modelData.nm.connection?'“'+card.modelData.nm.connection+'”  ·  ':'')+String(card.modelData.operstate||'').toUpperCase()+(card.modelData.carrier?'  ·  carrier':'  ·  no carrier')+(card.modelData.driver?'  ·  '+card.modelData.driver:'')+'  ·  '+(card.modelData.mac||'').toUpperCase();font.pixelSize:10;width:parent.width;elide:Text.ElideRight}
                                     }
-                                    Label{text:'↓ '+Model.rate(card.modelData.rates.rx)+'   ↑ '+Model.rate(card.modelData.rates.tx);width:250;horizontalAlignment:Text.AlignRight;color:'#c4d6dc'}
+                                    Label{text:'↓ '+Model.rate(card.modelData.rates.rx)+'   ↑ '+Model.rate(card.modelData.rates.tx);width:250;horizontalAlignment:Text.AlignRight;color:root.panelText}
                                 }
                                 Grid{width:parent.width;columns:4;spacing:8
                                     Stat{width:(parent.width-24)/4;height:66;label:'IPv4';value:((card.modelData.addrs4||[])[0]||'—')
@@ -601,7 +628,7 @@ Panel {
                                         elideMode:(card.modelData.addrs6||[]).length?Text.ElideMiddle:Text.ElideRight}
                                     Stat{width:(parent.width-24)/4;height:66;label:'ERRORS · DROPS';value:Model.count(card.modelData.stats.rxErrors+card.modelData.stats.txErrors)+'  ·  '+Model.count(card.modelData.stats.rxDropped+card.modelData.stats.txDropped);hint:'rx '+card.modelData.stats.rxErrors+'/'+card.modelData.stats.rxDropped+' · tx '+card.modelData.stats.txErrors+'/'+card.modelData.stats.txDropped}
                                 }
-                                Label{visible:card.managed;width:parent.width;elide:Text.ElideRight;font.pixelSize:10;color:'#a4b9c3'
+                                Label{visible:card.managed;width:parent.width;elide:Text.ElideRight;font.pixelSize:10;color:root.bodyText
                                     text:'IPv4 '+(card.s.method4||'—')+(card.s.addresses4?' '+card.s.addresses4:'')+(card.s.gateway4?' via '+card.s.gateway4:'')+'  ·  IPv6 '+(card.s.method6||'—')+'  ·  DNS '+(card.s.dns4?card.s.dns4+(card.s.ignoreAutoDns?' (DHCP DNS ignored)':''):'from DHCP')+'  ·  autoconnect '+(card.s.autoconnect?'on':'off')+(card.s.metered&&card.s.metered!=='unknown'?'  ·  metered '+card.s.metered:'')+(card.s.wakeOnLan&&card.s.wakeOnLan!=='default'?'  ·  wake-on-LAN '+card.s.wakeOnLan:'')}
                                 Row{spacing:8
                                     Action{visible:card.actionUuid!==''&&!card.external;text:card.connected?'Disconnect':'Connect'+(card.managed?'':' “'+card.actionName+'”');implicitHeight:28;enabled:!actionProc.running&&(card.modelData.kind!=='wifi'||!card.connected);onClicked:root.runAction('connection',[card.connected?'down':'up',card.actionUuid],(card.connected?'Deactivating ':'Activating ')+card.actionName+'…')}
@@ -631,9 +658,9 @@ Panel {
                             required property var modelData
                             required property int index
                             width:mainColumn.width;height:65;radius:10
-                            color:talkerMouse.containsMouse?'#1d303b':'#111e28';border.color:talkerMouse.containsMouse?root.tint:'#263844'
-                            Rectangle{anchors.left:parent.left;anchors.bottom:parent.bottom;anchors.leftMargin:12;anchors.bottomMargin:5;width:(parent.width-24)*Model.clamp(procRow.modelData.count/Math.max(1,(root.net.talkers||{}).total||1),0,1);height:2;radius:1;color:root.tint}
-                            Label{x:12;y:22;text:String(root.page*8+procRow.index+1).padStart(2,'0');font.pixelSize:12;color:root.tint}
+                            color:talkerMouse.containsMouse?root.surfaceHot:root.surface;border.color:talkerMouse.containsMouse?root.tint:root.hairline
+                            Rectangle{anchors.left:parent.left;anchors.bottom:parent.bottom;anchors.leftMargin:12;anchors.bottomMargin:5;width:(parent.width-24)*Model.clamp(procRow.modelData.count/Math.max(1,(root.net.talkers||{}).total||1),0,1);height:2;radius:1;color:root.themeAccent}
+                            Label{x:12;y:22;text:String(root.page*8+procRow.index+1).padStart(2,'0');font.pixelSize:12;color:root.themeAccent}
                             Column{x:44;y:10;spacing:5;width:parent.width-232
                                 Heading{text:procRow.modelData.name+'  ·  '+procRow.modelData.pid;font.pixelSize:13;width:parent.width;elide:Text.ElideRight}
                                 Label{text:(procRow.modelData.target&&procRow.modelData.target.address?(procRow.modelData.target.host.kind==='herdr'?'Herdr '+procRow.modelData.target.host.pane+' · ':procRow.modelData.target.host.kind==='tmux'?'tmux '+procRow.modelData.target.host.pane+' · ':'')+procRow.modelData.target.title+'  ·  ':'')+procRow.modelData.hosts+' host'+(procRow.modelData.hosts===1?'':'s')+': '+(procRow.modelData.remotes||[]).map(function(r){return r.host+(r.count>1?' ×'+r.count:'')+' ('+r.kind+')'}).join(', ');width:parent.width;elide:Text.ElideRight;font.pixelSize:10}
@@ -642,13 +669,13 @@ Panel {
                                 Heading{text:procRow.modelData.count+' socket'+(procRow.modelData.count===1?'':'s');font.pixelSize:15;anchors.right:parent.right}
                                 Label{text:procRow.modelData.tcp+' tcp · '+procRow.modelData.udp+' udp';font.pixelSize:10;anchors.right:parent.right}
                             }
-                            Label{anchors.right:parent.right;anchors.rightMargin:13;y:22;text:procRow.modelData.target&&procRow.modelData.target.address?'↗':'ⓘ';color:root.tint;font.pixelSize:16}
+                            Label{anchors.right:parent.right;anchors.rightMargin:13;y:22;text:procRow.modelData.target&&procRow.modelData.target.address?'↗':'ⓘ';color:root.themeAccent;font.pixelSize:16}
                             MouseArea{id:talkerMouse;anchors.fill:parent;hoverEnabled:true;cursorShape:Qt.PointingHandCursor
                                 onClicked: {if(procRow.modelData.target&&procRow.modelData.target.address)root.runAction('focus',[String(procRow.modelData.pid),String(procRow.modelData.start)],'Finding the existing window…');else root.actionStatus=procRow.modelData.name+' · PID '+procRow.modelData.pid+' · '+procRow.modelData.count+' open sockets to '+procRow.modelData.hosts+' hosts. No existing window to focus.'}
                             }
                         }
                     }
-                    Rectangle{visible:root.rows.length===0;width:parent.width;height:visible?60:0;radius:10;color:'#111e28';border.color:'#253744'
+                    Rectangle{visible:root.rows.length===0;width:parent.width;height:visible?60:0;radius:10;color:root.surface;border.color:root.hairline
                         Label{anchors.centerIn:parent;text:root.stale?'Waiting for the net-pulse service.':'No process has an open connection right now.'}
                     }
                     Row{spacing:10
@@ -677,8 +704,9 @@ Panel {
                         Stat{width:(mainColumn.width-24)/4;height:80;label:'RECORDED';value:(root.usageChart.recorded||0)<60?'—':Model.ago(root.usageChart.recorded)
                             hint:root.usageChart.first?'recording since '+Qt.formatDate(new Date(root.usageChart.first*1000),'d MMM yyyy'):'no history yet'}
                     }
-                    Rectangle{width:parent.width;height:184;radius:14;color:'#0f1a22';border.color:'#22323d'
+                    Rectangle{width:parent.width;height:184;radius:14;color:root.surface;border.color:root.hairline
                         UsageGraph{anchors.fill:parent;anchors.margins:11;usageData:root.usageChart;tint:root.tint
+                            baseLine:root.hairline;upTint:root.themeAccent;axisText:root.dimText;gridLine:root.gridLine;tipBackground:Color.tooltip.background;tipBorder:Color.tooltip.border;tipText:Color.tooltip.text
                             visible:(root.usageChart.points||[]).length>0}
                         Label{anchors.centerIn:parent;visible:(root.usageChart.points||[]).length===0
                             text:'Nothing recorded in '+Model.rangeWhen(root.usageRange)+' yet.'}
@@ -692,12 +720,12 @@ Panel {
                         Repeater{model:root.usageChart.ifaces||[]
                             Item{id:usageRow;required property var modelData;width:parent.width;height:34
                                 readonly property real total:(modelData[1]||0)+(modelData[2]||0)
-                                Rectangle{anchors.fill:parent;radius:9;color:'#101c26';border.color:'#22323d'}
+                                Rectangle{anchors.fill:parent;radius:9;color:root.surface;border.color:root.hairline}
                                 // The fill is the interface's share of the range, so one
                                 // busy tunnel is obvious without reading the numbers.
-                                Rectangle{height:parent.height;radius:9;color:Qt.alpha(root.tint,0.16)
+                                Rectangle{height:parent.height;radius:9;color:Qt.alpha(root.themeAccent,0.16)
                                     width:Math.max(3,parent.width*(root.usageTotal>0?usageRow.total/root.usageTotal:0))}
-                                Label{x:12;anchors.verticalCenter:parent.verticalCenter;color:'#e4edf0';font.pixelSize:12;text:usageRow.modelData[0]}
+                                Label{x:12;anchors.verticalCenter:parent.verticalCenter;color:root.panelText;font.pixelSize:12;text:usageRow.modelData[0]}
                                 Label{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;font.pixelSize:11
                                     text:'↓ '+Model.size(usageRow.modelData[1])+'    ↑ '+Model.size(usageRow.modelData[2])+'    ·    '+Model.size(usageRow.total)}
                             }
@@ -710,7 +738,7 @@ Panel {
                 // ------------------------------------------------------------ Network lab
                 Column {
                     width:parent.width;spacing:12;visible:root.tab===5;height:visible?implicitHeight:0
-                    Rectangle{width:parent.width;height:dnsCol.implicitHeight+28;radius:14;color:'#121b2c';border.color:'#303a57'
+                    Rectangle{width:parent.width;height:dnsCol.implicitHeight+28;radius:14;color:root.surfaceRaised;border.color:root.cardBorder
                         Column{id:dnsCol;anchors.fill:parent;anchors.margins:14;spacing:9
                             Item{width:parent.width;height:30
                                 Heading{anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter;text:'DNS';font.pixelSize:12}
@@ -723,7 +751,7 @@ Panel {
                             }
                             Repeater{model:((root.net.dns||{}).links||[]).filter(function(l){return (l.servers||[]).length>0})
                                 Item{required property var modelData;width:dnsCol.width;height:18
-                                    Label{id:dnsLine;anchors.fill:parent;elide:Text.ElideRight;font.pixelSize:11;color:dnsMouse.containsMouse?'#dfe4ff':'#b6c0fb'
+                                    Label{id:dnsLine;anchors.fill:parent;elide:Text.ElideRight;font.pixelSize:11;color:dnsMouse.containsMouse?root.accentHot:root.themeAccent
                                         text:parent.modelData.name+'  ·  answering: '+(parent.modelData.current||'—')+'  ·  servers: '+(parent.modelData.servers||[]).join(', ')+(parent.modelData.domains&&parent.modelData.domains.length?'  ·  domains: '+parent.modelData.domains.join(' '):'')+(parent.modelData.defaultRoute?'  ·  default route':'')+(parent.modelData.dnssec?'  ·  DNSSEC '+parent.modelData.dnssec:'')}
                                     MouseArea{id:dnsMouse;anchors.fill:parent;hoverEnabled:true;cursorShape:Qt.PointingHandCursor
                                         onClicked:root.copy(Model.bare(String(parent.modelData.current||(parent.modelData.servers||[])[0]||'').split('#')[0]),'the resolver for '+parent.modelData.name)}
@@ -732,19 +760,19 @@ Panel {
                             Label{text:'Provider switches use omarchy-dns, the same privileged path as the stock widget. DHCP hands resolution back to the router.';font.pixelSize:10}
                         }
                     }
-                    Rectangle{width:parent.width;height:104;radius:14;color:'#11251f';border.color:'#2c5547'
+                    Rectangle{width:parent.width;height:104;radius:14;color:root.accentSurface;border.color:root.accentBorder
                         Column{anchors.fill:parent;anchors.margins:14;spacing:9
                             Row{width:parent.width
                                 Heading{text:'PROBES';font.pixelSize:12;width:parent.width/2}
-                                Label{text:'Connectivity: '+String(root.net.connectivity||'unknown')+(Networking.connectivityCheckEnabled?' · NetworkManager checks enabled':' · checks off');width:parent.width/2;horizontalAlignment:Text.AlignRight;color:'#abc4b9';font.pixelSize:11}
+                                Label{text:'Connectivity: '+String(root.net.connectivity||'unknown')+(Networking.connectivityCheckEnabled?' · NetworkManager checks enabled':' · checks off');width:parent.width/2;horizontalAlignment:Text.AlignRight;color:root.bodyText;font.pixelSize:11}
                             }
                             Row{spacing:8
-                                Action{text:actionProc.running?'Working…':'10-ping latency burst';accent:'#63c89e';enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('latency',[],'Sending 10 pings to the gateway and '+(root.ping.probe||'1.1.1.1')+'…')}
-                                Action{text:'Public address';accent:'#63c89e';enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('publicip',[],'Asking api.ipify.org for the public address…')}
-                                Action{text:'Re-check connectivity';accent:'#63c89e';enabled:Networking.canCheckConnectivity;onClicked:{Networking.checkConnectivity();root.actionStatus='Asked NetworkManager to re-check connectivity.'}}
-                                Action{text:'Speed test';accent:'#63c89e';enabled:!!root.net.online;onClicked:root.summon('omarchy.speedtest',{connection:Model.isWifi(root.net)?root.wifi.ssid:(root.iface.connection||'Ethernet')})}
+                                Action{text:actionProc.running?'Working…':'10-ping latency burst';accent:root.themeAccent;enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('latency',[],'Sending 10 pings to the gateway and '+(root.ping.probe||'1.1.1.1')+'…')}
+                                Action{text:'Public address';accent:root.themeAccent;enabled:!actionProc.running&&!!root.net.online;onClicked:root.runAction('publicip',[],'Asking api.ipify.org for the public address…')}
+                                Action{text:'Re-check connectivity';accent:root.themeAccent;enabled:Networking.canCheckConnectivity;onClicked:{Networking.checkConnectivity();root.actionStatus='Asked NetworkManager to re-check connectivity.'}}
+                                Action{text:'Speed test';accent:root.themeAccent;enabled:!!root.net.online;onClicked:root.summon('omarchy.speedtest',{connection:Model.isWifi(root.net)?root.wifi.ssid:(root.iface.connection||'Ethernet')})}
                             }
-                            Label{text:'Public address is the only probe that leaves your network beyond pings; it runs only when you press it.';font.pixelSize:10;color:'#abc4b9'}
+                            Label{text:'Public address is the only probe that leaves your network beyond pings; it runs only when you press it.';font.pixelSize:10;color:root.bodyText}
                         }
                     }
                     Heading{text:'TRANSPORT';font.pixelSize:13}
@@ -771,7 +799,7 @@ Panel {
                         Repeater{model:root.net.routes||[]
                             Item{required property var modelData;width:parent.width;height:18
                                 Label{anchors.fill:parent;elide:Text.ElideRight;font.pixelSize:11
-                                    color:routeMouse.containsMouse&&parent.modelData.gateway?'#dfe4ff':parent.modelData.dst==='default'?'#e4edf0':'#b6c0fb'
+                                    color:routeMouse.containsMouse&&parent.modelData.gateway?root.accentHot:parent.modelData.dst==='default'?root.panelText:root.themeAccent
                                     text:(parent.modelData.dst==='default'?'default':parent.modelData.dst)+(parent.modelData.gateway?'  via '+parent.modelData.gateway:'')+'  dev '+parent.modelData.dev+(parent.modelData.metric?'  metric '+parent.modelData.metric:'')+(parent.modelData.protocol?'  ·  '+parent.modelData.protocol:'')}
                                 MouseArea{id:routeMouse;anchors.fill:parent;hoverEnabled:!!parent.modelData.gateway;enabled:!!parent.modelData.gateway
                                     cursorShape:Qt.PointingHandCursor;onClicked:root.copy(parent.modelData.gateway,'the gateway for '+parent.modelData.dst)}
@@ -783,10 +811,10 @@ Panel {
                 // ------------------------------------------------------------ About
                 Column {
                     width:parent.width;spacing:12;visible:root.tab===6;height:visible?implicitHeight:0
-                    Rectangle{width:parent.width;height:aboutCol.implicitHeight+28;radius:14;color:'#121b2c';border.color:'#303a57'
+                    Rectangle{width:parent.width;height:aboutCol.implicitHeight+28;radius:14;color:root.surfaceRaised;border.color:root.cardBorder
                         Column{id:aboutCol;anchors.fill:parent;anchors.margins:14;spacing:12
                             Row{width:parent.width;spacing:14
-                                NetChip{width:64;height:64;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint
+                                NetChip{width:64;height:64;body:root.surfaceRaised;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint
                                     animate:root.opened&&root.tab===6&&!root.stale&&root.setting('animated',true)}
                                 Column{anchors.verticalCenter:parent.verticalCenter;spacing:5
                                     Heading{text:'Net Pulse';font.pixelSize:20;font.letterSpacing:2}
@@ -802,8 +830,8 @@ Panel {
                         }
                     }
                 }
-                Rectangle{width:parent.width;height:1;color:'#25343f'}
-                Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10;color:root.stale?'#f0ba82':'#a4b9c3';text:root.actionStatus || (root.stale?'Telemetry is offline. Check the net-pulse user service.': 'LIVE · updated '+Qt.formatTime(new Date(root.net.ts*1000),'h:mm:ss AP')+'  ·  History stays on this machine  ·  Esc closes')}
+                Rectangle{width:parent.width;height:1;color:root.hairline}
+                Label{width:parent.width;wrapMode:Text.WordWrap;font.pixelSize:10;color:root.stale?root.themeUrgent:root.bodyText;text:root.actionStatus || (root.stale?'Telemetry is offline. Check the net-pulse user service.': 'LIVE · updated '+Qt.formatTime(new Date(root.net.ts*1000),'h:mm:ss AP')+'  ·  History stays on this machine  ·  Esc closes')}
             }
             }
         }

@@ -3,6 +3,14 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, Number(v) || 0)) }
 function num(v) { var n = Number(v); return isFinite(n) ? n : 0 }
 function has(v) { return v !== null && v !== undefined && isFinite(Number(v)) }
 // Colour follows link health: dark red offline, yellow when struggling, green when the path is clean.
+// Mix two colours. Every surface, rule and dim label in the dashboard is the
+// theme's own background lifted toward its own text by some fraction, which
+// lands correctly on a light theme as well as a dark one -- unlike a fixed
+// slate palette, and unlike Qt.lighter(), which barely moves a near-black.
+function mix(a, b, t) {
+    var f = clamp(t, 0, 1)
+    return Qt.rgba(a.r + (b.r - a.r)*f, a.g + (b.g - a.g)*f, a.b + (b.b - a.b)*f, 1)
+}
 function ramp(percent) {
     var f = clamp(percent, 0, 100) / 100
     var a = f <= 0.5 ? [133, 13, 41] : [239, 204, 69]

@@ -115,6 +115,10 @@ Latency is a single `ping` per probe cycle to the default gateway and to a publi
 
 Wi-Fi signal in dBm comes from `iw`; the 0–100 quality is NetworkManager's own figure for the associated access point. Negotiated rates are the current PHY rates, which is the ceiling of what the radio could carry, not what you are using. Nearby networks are grouped by name: one row can stand for several access points, and its channel, band and rate come from the strongest one.
 
+The dashboard follows the Omarchy theme rather than a palette of its own. Background, text and border come from the shell's popup roles, anything interactive takes the theme accent, and anything wrong takes urgent. Card surfaces, rules and dim labels are the theme's own background mixed toward its own text by a fraction, so they hold their contrast on a light theme as well as a dark one — `Qt.lighter()` barely moves a near-black, and a fixed slate palette does not move at all. A theme swap repaints the panel with no restart.
+
+One colour is deliberately not themed: the chip's red-amber-green health tint, and the download trace, hero card and status pill that share it. That ramp is a reading rather than decoration — a link going bad is amber before it is red — and it is what makes this widget a sibling of CPU Pulse and RAM Pulse sitting beside it on the bar. Everything that is merely chrome, including selected tabs, hover borders and the connected-network marker, uses the theme accent instead.
+
 Bar space is scarce, so the strip abbreviates where the dashboard does not. Throughput on the bar is three significant figures and a single unit letter — `254K`, `1.2M`, `43.4K` — which holds every reading to five characters and the whole widget to 87px. The tooltip, the dashboard and the Data tab keep the full `254.2 KB/s` form, and the units are the same decimal bytes throughout.
 
 The bar readout holds a fixed width per mode rather than shrinking to each reading. A widget that changes width every two seconds re-lays out the whole bar section it sits in, and on a crowded bar the sections overlap while the shell settles, so the readout ends up drawn over its neighbour. Each mode reserves the width of the widest string it can produce; the live text still wins if it ever runs wider, so nothing is clipped. The network name and IP address modes reserve nothing, because they only change when the network does.
@@ -129,7 +133,7 @@ References: [/proc/net/dev](https://docs.kernel.org/networking/statistics.html),
 - **`NetChip.qml`** — the animated chip, compact on the bar and large in the hero card
 - **`HistoryGraph.qml`** — throughput and latency history with peak envelope and hover
 - **`UsageGraph.qml`** — data used per bucket, download and upload stacked, with hover
-- **`Model.js`** — colour ramp, health score, formatting, readout modes, bar width reservations
+- **`Model.js`** — health ramp, colour mixing, formatting, readout modes, bar width reservations
 - **`net_pulse.py`** — telemetry daemon, SQLite history and usage rollup, focus and network actions
 - **`install.py`** — copies the plugin, enables the service, takes the network widget's bar slot with backups
 - **`tests/`** — Python unit tests, a Node check of the model helpers, and QML widget tests

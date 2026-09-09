@@ -155,5 +155,31 @@ class AboutTests(unittest.TestCase):
         self.assertIn("'About'", panel)
 
 
+class ThemeTests(unittest.TestCase):
+    GRAPHS = ('HistoryGraph.qml', 'UsageGraph.qml', 'NetChip.qml')
+
+    def test_the_dashboard_hardcodes_no_colour(self):
+        # Every surface, rule and label in the panel comes from the Omarchy
+        # theme. A literal here is a colour that will not follow a theme swap.
+        panel = (SOURCE / 'Panel.qml').read_text()
+        self.assertEqual(re.findall(r'#[0-9a-fA-F]{6}', panel), [])
+
+    def test_the_drawn_components_hardcode_colour_only_as_a_default(self):
+        # The chip and the graphs stay usable on their own, so each keeps a
+        # literal fallback -- but only ever on a property the panel can set.
+        for name in self.GRAPHS:
+            for number, line in enumerate((SOURCE / name).read_text().splitlines(), 1):
+                if re.search(r'#[0-9a-fA-F]{6}', line):
+                    self.assertRegex(line.strip(), r'^(readonly )?property color \w+:',
+                                     '%s:%d hardcodes a colour outside a property default' % (name, number))
+
+    def test_the_panel_drives_every_colour_the_components_expose(self):
+        panel = (SOURCE / 'Panel.qml').read_text()
+        for name in self.GRAPHS:
+            for prop in re.findall(r'property color (\w+):', (SOURCE / name).read_text()):
+                self.assertRegex(panel, r'\b%s\s*:' % prop,
+                                 '%s exposes %s but Panel.qml never sets it' % (name, prop))
+
+
 if __name__ == '__main__':
     unittest.main()

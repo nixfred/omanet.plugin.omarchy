@@ -13,6 +13,9 @@ Item {
     property bool animate: true
     property bool compact: false
     property color tint: Model.ramp(level * 100)
+    // The chip body sits on whatever surface holds it, so it reads as cut out
+    // of the bar or the card rather than pasted onto them.
+    property color body: '#0b141b'
     property real phase: 0
     property real shownLevel: level
     implicitWidth: compact ? 28 : 160
@@ -61,7 +64,7 @@ Item {
                     c.arc(cx,cy,body*(0.78+ring*0.12),ang,ang+0.42);c.stroke()
                 }
             }
-            c.fillStyle='#0b141b'; c.strokeStyle=root.tint; c.lineWidth=root.compact?1.2:2
+            c.fillStyle=root.body; c.strokeStyle=root.tint; c.lineWidth=root.compact?1.2:2
             c.fillRect(x,y,body,body)
             c.shadowColor=root.tint; c.shadowBlur=root.compact?5:12
             c.strokeRect(x,y,body,body); c.shadowBlur=0

@@ -9,7 +9,14 @@ Item {
     id: root
     property var usageData: ({points:[], seconds:3600, start:0, now:0, bucket:60, peak:0})
     property color tint: '#43f2a1'
-    readonly property color upTint: '#8d9dff'
+    // Theme surfaces, handed down by the panel; download keeps the health tint.
+    property color upTint: '#8d9dff'
+    property color axisText: '#7e959f'
+    property color gridLine: '#233039'
+    property color baseLine: '#33454f'
+    property color tipBackground: '#17232d'
+    property color tipBorder: '#40525f'
+    property color tipText: '#edf5f7'
     property int hoverIndex: -1
     readonly property int leftAxis: 56
     readonly property int rightPad: 8
@@ -57,9 +64,9 @@ Item {
             c.font = '10px sans-serif'
             for (var line = 0; line <= 4; line++) {
                 var y = 8 + (h - 8)*line/4
-                c.strokeStyle = '#233039'; c.lineWidth = 1
+                c.strokeStyle = root.gridLine; c.lineWidth = 1
                 c.beginPath(); c.moveTo(x0, y); c.lineTo(x0 + w, y); c.stroke()
-                c.fillStyle = '#7e959f'; c.textAlign = 'right'
+                c.fillStyle = root.axisText; c.textAlign = 'right'
                 c.fillText(Model.shortSize(root.ceiling*(1 - line/4)), x0 - 5, y + 3)
             }
             function yFor(v) { return 8 + (h - 8)*(1 - Model.clamp(v, 0, root.ceiling)/root.ceiling) }
@@ -72,9 +79,9 @@ Item {
                 c.fillStyle = hot ? Qt.lighter(root.upTint, 1.25) : root.upTint
                 c.fillRect(x, yTop, bw, Math.max(p[2] > 0 ? 1 : 0, yRx - yTop))
             }
-            c.strokeStyle = '#33454f'; c.lineWidth = 1
+            c.strokeStyle = root.baseLine; c.lineWidth = 1
             c.beginPath(); c.moveTo(x0, base + 0.5); c.lineTo(x0 + w, base + 0.5); c.stroke()
-            c.fillStyle = '#7e959f'; c.textAlign = 'left'
+            c.fillStyle = root.axisText; c.textAlign = 'left'
             c.fillText(root.axisLabel(root.usageData.start || 0), x0, height - 3)
             c.textAlign = 'right'; c.fillText('now', x0 + w, height - 3)
         }
@@ -82,9 +89,9 @@ Item {
     Rectangle {
         visible: root.hoverPoint !== null
         anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
-        width: hoverText.implicitWidth + 20; height: 27; radius: 7; color: '#17232d'; border.color: '#40525f'
+        width: hoverText.implicitWidth + 20; height: 27; radius: 7; color: root.tipBackground; border.color: root.tipBorder
         Text {
-            id: hoverText; anchors.centerIn: parent; color: '#edf5f7'; font.pixelSize: 11; textFormat: Text.PlainText
+            id: hoverText; anchors.centerIn: parent; color: root.tipText; font.pixelSize: 11; textFormat: Text.PlainText
             text: {
                 var p = root.hoverPoint
                 if (!p) return ''
