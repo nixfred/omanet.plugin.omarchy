@@ -115,21 +115,22 @@ Latency is a single `ping` per probe cycle to the default gateway and to a publi
 
 Wi-Fi signal in dBm comes from `iw`; the 0–100 quality is NetworkManager's own figure for the associated access point. Negotiated rates are the current PHY rates, which is the ceiling of what the radio could carry, not what you are using. Nearby networks are grouped by name: one row can stand for several access points, and its channel, band and rate come from the strongest one.
 
+The bar readout holds a fixed width per mode rather than shrinking to each reading. A widget that changes width every two seconds re-lays out the whole bar section it sits in, and on a crowded bar the sections overlap while the shell settles, so the readout ends up drawn over its neighbour. Each mode reserves the width of the widest string it can produce; the live text still wins if it ever runs wider, so nothing is clipped. The network name and IP address modes reserve nothing, because they only change when the network does.
+
 Socket counts come from `ss` and are exact. Per-process bandwidth is deliberately absent: attributing bytes to a process needs packet capture privileges this plugin does not take. RSS-style double counting does not apply here, but a process holding many sockets to one host is not necessarily using more bandwidth than one holding a single busy socket.
 
 References: [/proc/net/dev](https://docs.kernel.org/networking/statistics.html), [NetworkManager](https://networkmanager.dev/docs/api/latest/), [systemd-resolved](https://www.freedesktop.org/software/systemd/man/latest/resolvectl.html), [iw](https://wireless.wiki.kernel.org/en/users/documentation/iw), [Quickshell.Networking](https://quickshell.org/docs/master/types/Quickshell.Networking/).
 
 ## Layout
 
-| File | Role |
-|---|---|
-| `Panel.qml` | Bar widget, five-tab dashboard, readout picker, Wi-Fi actions, IPC handler |
-| `NetChip.qml` | The animated chip (compact on the bar, large in the hero card) |
-| `HistoryGraph.qml` | Throughput and latency history with peak envelope and hover |
-| `Model.js` | Colour ramp, health score, formatting, readout modes |
-| `net_pulse.py` | Telemetry daemon, SQLite history, focus and network actions |
-| `install.py` | Copies the plugin, enables the service, takes the network widget's bar slot with backups |
-| `tests/` | Python unit tests, a Node check of the model helpers, and QML widget tests |
+- **`Panel.qml`** — bar widget, seven-tab dashboard, readout picker, Wi-Fi actions, IPC handler
+- **`NetChip.qml`** — the animated chip, compact on the bar and large in the hero card
+- **`HistoryGraph.qml`** — throughput and latency history with peak envelope and hover
+- **`UsageGraph.qml`** — data used per bucket, download and upload stacked, with hover
+- **`Model.js`** — colour ramp, health score, formatting, readout modes, bar width reservations
+- **`net_pulse.py`** — telemetry daemon, SQLite history and usage rollup, focus and network actions
+- **`install.py`** — copies the plugin, enables the service, takes the network widget's bar slot with backups
+- **`tests/`** — Python unit tests, a Node check of the model helpers, and QML widget tests
 
 ## License
 

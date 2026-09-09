@@ -50,7 +50,7 @@ Panel {
         var reg = bar && bar.shell ? bar.shell.pluginRegistry : null
         return reg && reg.installedPlugins ? (reg.installedPlugins[root.moduleName] || null) : null
     }
-    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.2.0'
+    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.2.1'
     readonly property string repoUrl: pluginManifest && pluginManifest.repository ? String(pluginManifest.repository) : 'https://github.com/nixfred/omanet.plugin.omarchy'
     readonly property string siteUrl: pluginManifest && pluginManifest.homepage ? String(pluginManifest.homepage) : 'https://nixfred.com'
 
@@ -203,6 +203,11 @@ Panel {
         onFileChanged:reload()
         onLoaded:{try{root.usages=JSON.parse(text())}catch(e){}}
     }
+    // Width floors for the bar readout, measured by hidden labels rather than by
+    // TextMetrics: only an identical Text arrives at an identical implicitWidth,
+    // and the third of a pixel the two disagree by is still a resize.
+    Text { id:readoutFloor; visible:false; font:readoutText.font; textFormat:Text.PlainText; text:Model.widestReadout(root.net,root.mode) }
+    Text { id:tagFloor; visible:false; font:tagText.font; textFormat:Text.PlainText; text:Model.widestTag(root.net,root.mode) }
     Timer { interval:2000; running:true; repeat:true; onTriggered:{root.now=Date.now()/1000; if(root.stale)snapshotFile.reload()} }
     Timer {
         id:wifiPoll; interval:500; repeat:true; running:root.wifiKind!==''
@@ -250,8 +255,13 @@ Panel {
             NetChip {compact:true;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:!root.stale && root.setting('animated',true)}
             Column {
                 anchors.verticalCenter:parent.verticalCenter
-                Text {text:root.stale?'—':Model.readout(root.net,root.mode);color:root.barForeground;font.family:Style.font.family;font.pixelSize:12;font.bold:true;textFormat:Text.PlainText}
-                Text {text:Model.modeTag(root.net,root.mode);color:root.tint;font.pixelSize:7;font.letterSpacing:0.6;textFormat:Text.PlainText}
+                // Both lines hold the width of the widest reading their mode can
+                // show, so a passing 254 KB/s does not widen the whole bar
+                // section and shove this widget over its neighbour.
+                Text {id:readoutText;text:root.stale?'—':Model.readout(root.net,root.mode);color:root.barForeground
+                    width:Math.max(implicitWidth,readoutFloor.implicitWidth);font.family:Style.font.family;font.pixelSize:12;font.bold:true;textFormat:Text.PlainText}
+                Text {id:tagText;text:Model.modeTag(root.net,root.mode);color:root.tint
+                    width:Math.max(implicitWidth,tagFloor.implicitWidth);font.pixelSize:7;font.letterSpacing:0.6;textFormat:Text.PlainText}
             }
         }
     }

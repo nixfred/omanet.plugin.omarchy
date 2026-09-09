@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import ".." as Pulse
+import "../Model.js" as Model
 
 TestCase {
     name: "NetPulseWidgets"
@@ -13,6 +14,22 @@ TestCase {
     Pulse.HistoryGraph { id: graph; width: 700; height: 139 }
     Pulse.NetChip { id: chip; width: 28; height: 25; compact: true; animate: false }
     Pulse.UsageGraph { id: usage; width: 700; height: 160 }
+
+    // The bar readout, reproduced exactly as Panel.qml lays it out.
+    Text {
+        id: probe; visible: false; font.pixelSize: 12; font.bold: true
+        width: Math.max(implicitWidth, probeFloor.implicitWidth)
+    }
+    Text { id: probeFloor; visible: false; font: probe.font; text: Model.widestReadout(probeSnapshot, probeMode) }
+    property int probeMode: 0
+    property var probeSnapshot: ({warm: true, online: true, iface: {kind: 'wifi', name: 'wlp2s0'},
+                                  wifi: {ssid: 'ILoveMyWifi'}, ping: {}, rates: {rx: 0, tx: 0}})
+    function snap(fields) {
+        var m = {warm: true, online: true, iface: {kind: 'wifi', name: 'wlp2s0', speed: null},
+                 wifi: {ssid: 'ILoveMyWifi'}, ping: {}, rates: {rx: 0, tx: 0}}
+        for (var key in fields) m[key] = fields[key]
+        return m
+    }
 
     // [ts, rxAvg, rxPeak, txAvg, latency, signal, count, boot]
     function test_hover_survives_an_emptied_history() {
@@ -101,6 +118,30 @@ TestCase {
             var axis = usage.axisLabel(1757000000)
             verify(axis.length > 0, 'bucket ' + widths[i] + ' has no axis label')
             compare(axis.indexOf('–'), -1, 'axis label for bucket ' + widths[i] + ' is a range')
+        }
+        wait(30)
+    }
+
+    // A widget that changes width every two seconds re-lays out its whole bar
+    // section, and on a full bar it ends up drawn over its neighbour. Whatever
+    // the link is doing, the readout must occupy exactly one width.
+    function test_the_bar_readout_holds_one_width_in_every_changing_mode() {
+        failOnWarning(/.*/)
+        var cases = {
+            0: [0, 512, 9900, 34800, 254200, 999900, 1200000, 48000000, 999900000].map(function(r) {
+                   return snap({rates: {rx: r, tx: r}}) }),
+            1: [-31, -46, -78, -100].map(function(d) { return snap({wifi: {ssid: 'ILoveMyWifi', signal: d, quality: 83}}) }),
+            2: [0.4, 9.9, 11.2, 120, 999, 1500, -1].map(function(l) { return snap({ping: {internet: l}}) })
+        }
+        for (var mode in cases) {
+            probeMode = Number(mode)
+            var seen = {}, count = 0
+            for (var i = 0; i < cases[mode].length; i++) {
+                probe.text = Model.readout(cases[mode][i], Number(mode))
+                verify(probe.implicitWidth <= probe.width, probe.text + ' is clipped by its reservation')
+                if (seen[probe.width] === undefined) { seen[probe.width] = true; count++ }
+            }
+            compare(count, 1, 'mode ' + mode + ' took more than one width')
         }
         wait(30)
     }

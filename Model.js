@@ -174,6 +174,28 @@ function modeTag(m, mode) {
     if (mode === 4) return String(iface.name || '').toUpperCase()
     return '↑ '+rate(m.rates ? m.rates.tx : 0)
 }
+// The bar widget must not change width as a reading changes. Every resize
+// re-lays out the whole bar section it sits in, and on a full bar the sections
+// briefly overlap before the shell settles -- the readout ends up drawn over
+// the widget to its right. So each mode whose text changes every sample
+// reserves the width of the widest string it can produce. These are floors,
+// never limits: the live text still wins if it runs wider, so nothing clips.
+// The name and address modes reserve nothing, because they only change when
+// the network does and cannot flicker.
+function widestReadout(m, mode) {
+    if (mode === 1) return isWifi(m) ? '-100 dBm' : '999 Mbit/s'
+    // '9999 ms' is wider than 'timeout' and than any latency short of absurd,
+    // and 'MB' is wider than the 'KB' and 'GB' of the same-length rate strings.
+    if (mode === 2) return '9999 ms'
+    if (mode === 3 || mode === 4) return ''
+    return '\u2193 999.9 MB/s'
+}
+function widestTag(m, mode) {
+    if (mode === 1) return isWifi(m) ? '100% SIGNAL' : 'LINK SPEED'
+    if (mode === 2) return 'INTERNET'
+    if (mode === 3 || mode === 4) return ''
+    return '\u2191 999.9 MB/s'
+}
 function modeName(mode) { return ['Throughput', 'Signal / link speed', 'Latency', 'Network name', 'IP address'][mode] || 'Throughput' }
 // Axis ceiling for the history graph: 1–2–5 steps, never below 10 KB/s so a quiet link is not magnified into noise.
 function niceMax(v) {

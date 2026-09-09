@@ -81,4 +81,27 @@ assert.equal(ctx.rangeName(0), 'All time');
 assert.equal(ctx.coverage(3600, 3600), 'fully recorded');
 assert.equal(ctx.coverage(0, 86400), 'nothing recorded yet');
 
+// Bar width reservations. Modes that change every sample reserve a floor;
+// the name and address modes reserve nothing, because they cannot flicker.
+for (const mode of [0,1,2]) {
+  assert.ok(ctx.widestReadout(wifi,mode).length>0, 'mode '+mode+' reserves no readout');
+  assert.ok(ctx.widestTag(wifi,mode).length>0, 'mode '+mode+' reserves no tag');
+}
+for (const mode of [3,4]) {
+  assert.equal(ctx.widestReadout(wifi,mode),'');
+  assert.equal(ctx.widestTag(wifi,mode),'');
+}
+// Nothing a mode can actually render may out-run its reservation.
+const busy={...wifi, rates:{rx:999900000,tx:999900000}};
+assert.equal(ctx.readout(busy,0),'\u2193 999.9 MB/s');
+assert.ok(ctx.readout(busy,0).length<=ctx.widestReadout(busy,0).length);
+assert.ok(ctx.modeTag(busy,0).length<=ctx.widestTag(busy,0).length);
+assert.ok(ctx.readout(wifi,2).length<=ctx.widestReadout(wifi,2).length);
+assert.ok(ctx.modeTag(wifi,2).length<=ctx.widestTag(wifi,2).length);
+assert.ok(ctx.modeTag(wifi,1).length<=ctx.widestTag(wifi,1).length);
+for (const speed of [100,1000,2500,10000]) {
+  const link={...wired, iface:{...wired.iface, speed:speed}};
+  assert.ok(ctx.readout(link,1).length<=ctx.widestReadout(link,1).length, speed+' out-runs its reservation');
+}
+
 console.log('Readouts, offline and cold telemetry, decimal units, health scoring and graph ceilings pass.');
