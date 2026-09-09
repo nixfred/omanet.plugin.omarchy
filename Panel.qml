@@ -50,7 +50,7 @@ Panel {
         var reg = bar && bar.shell ? bar.shell.pluginRegistry : null
         return reg && reg.installedPlugins ? (reg.installedPlugins[root.moduleName] || null) : null
     }
-    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.2.1'
+    readonly property string version: pluginManifest && pluginManifest.version ? String(pluginManifest.version) : '1.3.0'
     readonly property string repoUrl: pluginManifest && pluginManifest.repository ? String(pluginManifest.repository) : 'https://github.com/nixfred/omanet.plugin.omarchy'
     readonly property string siteUrl: pluginManifest && pluginManifest.homepage ? String(pluginManifest.homepage) : 'https://nixfred.com'
 

@@ -115,6 +115,8 @@ Latency is a single `ping` per probe cycle to the default gateway and to a publi
 
 Wi-Fi signal in dBm comes from `iw`; the 0–100 quality is NetworkManager's own figure for the associated access point. Negotiated rates are the current PHY rates, which is the ceiling of what the radio could carry, not what you are using. Nearby networks are grouped by name: one row can stand for several access points, and its channel, band and rate come from the strongest one.
 
+Bar space is scarce, so the strip abbreviates where the dashboard does not. Throughput on the bar is three significant figures and a single unit letter — `254K`, `1.2M`, `43.4K` — which holds every reading to five characters and the whole widget to 87px. The tooltip, the dashboard and the Data tab keep the full `254.2 KB/s` form, and the units are the same decimal bytes throughout.
+
 The bar readout holds a fixed width per mode rather than shrinking to each reading. A widget that changes width every two seconds re-lays out the whole bar section it sits in, and on a crowded bar the sections overlap while the shell settles, so the readout ends up drawn over its neighbour. Each mode reserves the width of the widest string it can produce; the live text still wins if it ever runs wider, so nothing is clipped. The network name and IP address modes reserve nothing, because they only change when the network does.
 
 Socket counts come from `ss` and are exact. Per-process bandwidth is deliberately absent: attributing bytes to a process needs packet capture privileges this plugin does not take. RSS-style double counting does not apply here, but a process holding many sockets to one host is not necessarily using more bandwidth than one holding a single busy socket.

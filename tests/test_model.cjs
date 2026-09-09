@@ -8,7 +8,8 @@ const wired={warm:true,online:true,connectivity:'full',iface:{kind:'ethernet',na
   rates:{rx:12000000,tx:900000},wifi:{},ping:{internet:4.1,gateway:0.9,loss:0}};
 
 // Readouts, one per bar mode.
-assert.equal(ctx.readout(wifi,0),'↓ 1.5 MB/s');
+assert.equal(ctx.readout(wifi,0),'↓ 1.5M');
+assert.equal(ctx.modeTag(wifi,0),'↑ 250K');
 assert.equal(ctx.readout(wifi,1),'-46 dBm');
 assert.equal(ctx.readout(wired,1),'1 Gbit/s');
 assert.equal(ctx.readout(wifi,2),'11 ms');
@@ -81,6 +82,22 @@ assert.equal(ctx.rangeName(0), 'All time');
 assert.equal(ctx.coverage(3600, 3600), 'fully recorded');
 assert.equal(ctx.coverage(0, 86400), 'nothing recorded yet');
 
+// The bar strip formats throughput to three significant figures and one unit
+// letter. Every reading must fit five characters, or the reservation that keeps
+// the widget from resizing has to grow to cover a sixth.
+for (const bps of [0, 1, 512, 999, 999.6, 9900, 43400, 254200, 999400, 999500,
+                   1200000, 14700000, 99950000, 999900000, 1e10, 99.95e9, 5e12]) {
+  assert.ok(ctx.tight(bps).length <= 5, bps + ' formats as ' + ctx.tight(bps));
+}
+// Tier boundaries roll up rather than rounding into a sixth character.
+assert.equal(ctx.tight(999.6), '1.0K');
+assert.equal(ctx.tight(999500), '1.0M');
+assert.equal(ctx.tight(999400), '999K');
+assert.equal(ctx.tight(99950000), '100M');
+// The dashboard and the tooltip keep the long form; only the strip is tight.
+assert.equal(ctx.rate(254200), '254.2 KB/s');
+assert.equal(ctx.tight(254200), '254K');
+
 // Bar width reservations. Modes that change every sample reserve a floor;
 // the name and address modes reserve nothing, because they cannot flicker.
 for (const mode of [0,1,2]) {
@@ -93,7 +110,7 @@ for (const mode of [3,4]) {
 }
 // Nothing a mode can actually render may out-run its reservation.
 const busy={...wifi, rates:{rx:999900000,tx:999900000}};
-assert.equal(ctx.readout(busy,0),'\u2193 999.9 MB/s');
+assert.equal(ctx.readout(busy,0),'\u2193 1.0G');
 assert.ok(ctx.readout(busy,0).length<=ctx.widestReadout(busy,0).length);
 assert.ok(ctx.modeTag(busy,0).length<=ctx.widestTag(busy,0).length);
 assert.ok(ctx.readout(wifi,2).length<=ctx.widestReadout(wifi,2).length);

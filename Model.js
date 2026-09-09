@@ -25,6 +25,21 @@ function shortRate(bps) {
     if (n >= 1e3) return (n/1e3).toFixed(0)+'K'
     return n.toFixed(0)+'B'
 }
+// Bar throughput. Three significant figures and a one-letter unit hold every
+// reading to five characters, which is what lets the bar reserve one width
+// without reserving a lot of dead space beside it. The dashboard and the
+// tooltip keep the full "254.2 KB/s" form; this is only for the strip.
+function tight(bps) {
+    var n = Math.max(0, num(bps))
+    var units = [[1e9, 'G'], [1e6, 'M'], [1e3, 'K']]
+    for (var i = 0; i < units.length; i++) {
+        var v = n/units[i][0]
+        // 0.9995 and not 1: 999.9 KB/s must roll up to 1.0M rather than
+        // round to a sixth character as "1000K".
+        if (v >= 0.9995) return (v >= 99.95 ? v.toFixed(0) : v.toFixed(1))+units[i][1]
+    }
+    return n.toFixed(0)+'B'
+}
 function size(bytes) {
     var n = Math.max(0, num(bytes))
     if (n >= 1e12) return (n/1e12).toFixed(2)+' TB'
@@ -163,7 +178,7 @@ function readout(m, mode) {
     if (mode === 2) return ms(has(ping.internet) ? ping.internet : ping.gateway)
     if (mode === 3) return isWifi(m) ? m.wifi.ssid : (iface.connection || iface.name || '—')
     if (mode === 4) return bare((iface.addrs4 && iface.addrs4.length ? iface.addrs4[0] : iface.addrs6 && iface.addrs6.length ? iface.addrs6[0] : 'no address'))
-    return '↓ '+rate(m.rates ? m.rates.rx : 0)
+    return '↓ '+tight(m.rates ? m.rates.rx : 0)
 }
 function modeTag(m, mode) {
     if (!m || !m.warm || !m.online) return 'NETWORK'
@@ -172,7 +187,7 @@ function modeTag(m, mode) {
     if (mode === 2) return has(ping.internet) ? 'INTERNET' : 'GATEWAY'
     if (mode === 3) return isWifi(m) ? (m.wifi.band || band(m.wifi.freq))+(m.wifi.channel ? ' · CH '+m.wifi.channel : '') : kindName(iface.kind).toUpperCase()
     if (mode === 4) return String(iface.name || '').toUpperCase()
-    return '↑ '+rate(m.rates ? m.rates.tx : 0)
+    return '↑ '+tight(m.rates ? m.rates.tx : 0)
 }
 // The bar widget must not change width as a reading changes. Every resize
 // re-lays out the whole bar section it sits in, and on a full bar the sections
@@ -184,17 +199,18 @@ function modeTag(m, mode) {
 // the network does and cannot flicker.
 function widestReadout(m, mode) {
     if (mode === 1) return isWifi(m) ? '-100 dBm' : '999 Mbit/s'
-    // '9999 ms' is wider than 'timeout' and than any latency short of absurd,
-    // and 'MB' is wider than the 'KB' and 'GB' of the same-length rate strings.
+    // '9999 ms' is wider than 'timeout' and than any latency short of absurd.
+    // For throughput, 'M' is the widest unit letter and 99.9 the widest of the
+    // five-character readings, so '99.9M' dominates every rate tight() emits.
     if (mode === 2) return '9999 ms'
     if (mode === 3 || mode === 4) return ''
-    return '\u2193 999.9 MB/s'
+    return '\u2193 99.9M'
 }
 function widestTag(m, mode) {
     if (mode === 1) return isWifi(m) ? '100% SIGNAL' : 'LINK SPEED'
     if (mode === 2) return 'INTERNET'
     if (mode === 3 || mode === 4) return ''
-    return '\u2191 999.9 MB/s'
+    return '\u2191 99.9M'
 }
 function modeName(mode) { return ['Throughput', 'Signal / link speed', 'Latency', 'Network name', 'IP address'][mode] || 'Throughput' }
 // Axis ceiling for the history graph: 1–2–5 steps, never below 10 KB/s so a quiet link is not magnified into noise.
