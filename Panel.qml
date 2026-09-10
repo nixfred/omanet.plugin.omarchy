@@ -30,7 +30,13 @@ Panel {
     readonly property bool stale: !net.ts || now-net.ts > 12
     readonly property int mode: Model.clamp(setting('displayMode',0),0,4)
     readonly property real health: stale ? 50 : Model.health(net)
-    readonly property color tint: stale ? Color.muted : Model.ramp(health)
+    // The link ramp takes the theme's own red, yellow and green. The shell
+    // exposes neither green nor yellow, so they come from the theme's palette
+    // file; Model.rampStops lifts a muted one and keeps the built-in ramp for
+    // a theme whose three stops are really one colour.
+    property string palette: ''
+    readonly property var rampStops: Model.rampStops(palette)
+    readonly property color tint: stale ? Color.muted : Model.ramp(health, rampStops)
     readonly property string chipKind: stale || !net.online ? 'offline' : (Model.isWifi(net) ? 'wifi' : 'ethernet')
     readonly property real activity: Model.clamp(((net.rates||{}).rx||0)/8e6, 0, 1)
     readonly property var rows: (net.talkers||{}).rows || []
@@ -229,6 +235,21 @@ Panel {
         onFileChanged:reload()
         onLoaded:{try{root.usages=JSON.parse(text())}catch(e){}}
     }
+    FileView {
+        // The theme's own palette file. watchChanges covers a theme edited in
+        // place; a theme switch is caught by themeSignature below.
+        id:paletteFile
+        path:Quickshell.env('HOME')+'/.local/state/omarchy/current/theme/colors.toml'
+        watchChanges:true; printErrors:false
+        onFileChanged:reload()
+        onLoaded:root.palette=text()
+    }
+    // The shell reads colors.toml once at startup and is pushed later palettes
+    // over IPC, so the watcher alone would strand the ramp on the previous
+    // theme. Re-read whenever the shell's own colours move, which is exactly
+    // when that push lands.
+    readonly property string themeSignature: String(Color.background)+String(Color.foreground)+String(Color.accent)+String(Color.urgent)
+    onThemeSignatureChanged: paletteFile.reload()
     // Width floors for the bar readout, measured by hidden labels rather than by
     // TextMetrics: only an identical Text arrives at an identical implicitWidth,
     // and the third of a pixel the two disagree by is still a resize.
@@ -278,7 +299,7 @@ Panel {
         onPressed:function(b){if(b===Qt.RightButton){root.chooseMode=true;root.open()}else{root.chooseMode=false;root.toggle()}}
         Row {
             id:barRow;anchors.centerIn:parent;spacing:4
-            NetChip {compact:true;body:Color.bar.background;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:!root.stale && root.setting('animated',true)}
+            NetChip {compact:true;body:Color.bar.background;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;stops:root.rampStops;animate:!root.stale && root.setting('animated',true)}
             Column {
                 anchors.verticalCenter:parent.verticalCenter
                 // Both lines hold the width of the widest reading their mode can
@@ -440,7 +461,7 @@ Panel {
                     Rectangle {
                         width:parent.width;height:170;radius:16;border.color:Qt.alpha(root.tint,0.45)
                         gradient:Gradient {GradientStop{position:0;color:Qt.alpha(root.tint,0.13)}GradientStop{position:1;color:root.surface}}
-                        NetChip {x:12;y:5;width:160;height:160;body:root.surfaceRaised;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;animate:root.opened&&root.tab===0&&!root.stale&&root.setting('animated',true)}
+                        NetChip {x:12;y:5;width:160;height:160;body:root.surfaceRaised;kind:root.chipKind;level:root.health/100;activity:root.activity;tint:root.tint;stops:root.rampStops;animate:root.opened&&root.tab===0&&!root.stale&&root.setting('animated',true)}
                         Column {x:188;y:18;spacing:5;width:parent.width-330
                             Label{text:'DOWNLOAD  ·  UPLOAD';font.pixelSize:11;font.letterSpacing:2}
                             Row {spacing:14

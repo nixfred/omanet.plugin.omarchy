@@ -121,4 +121,69 @@ for (const speed of [100,1000,2500,10000]) {
   assert.ok(ctx.readout(link,1).length<=ctx.widestReadout(link,1).length, speed+' out-runs its reservation');
 }
 
-console.log('Readouts, offline and cold telemetry, decimal units, health scoring and graph ceilings pass.');
+
+// ---- Theme ramp ------------------------------------------------------------
+// The link ramp carries meaning rather than style, so it follows the theme's
+// own red, yellow and green and must stay readable in every one of them.
+
+// A palette named directly, or given as terminal colour slots. The named key
+// wins where a theme defines both.
+const named=`red = "#FF5964"\nyellow = "#F6C84D"\ngreen = "#8BCB68"\n`;
+assert.deepEqual({...ctx.parsePalette(`color1 = "#FF5964"\ncolor2='#8BCB68'\ncolor3 = #F6C84D\n`)},
+  {red:'#FF5964',yellow:'#F6C84D',green:'#8BCB68'});
+assert.equal(ctx.parsePalette(named+`color1 = "#000000"\n`).red,'#FF5964');
+
+// Stops are built inside the script realm, so they carry a different Array
+// prototype and are spread out of it, outer array included, before any strict
+// deep comparison.
+const plain=s=>[...s].map(stop=>[...stop]);
+
+// A stop already above the chroma floor passes through untouched.
+const namedStops=ctx.rampStops(named);
+assert.deepEqual(plain(namedStops)[0],[255,89,100]);
+assert.deepEqual(plain(namedStops)[1],[246,200,77]);
+
+// A muted palette of genuinely different hues is lifted, not rejected.
+// 2-haxorz's three sit 14, 85 and 178 degrees apart; only its chroma is thin.
+const lifted=ctx.rampStops(`red = "#b9968f"\nyellow = "#7b8768"\ngreen = "#708c8b"\n`);
+assert.notEqual(lifted,ctx.DEFAULT_STOPS);
+assert.deepEqual(plain(lifted),[[214,131,114],[134,185,54],[57,195,190]]);
+assert.ok(ctx.separation(lifted[0],lifted[1])>=80);
+assert.ok(ctx.separation(lifted[1],lifted[2])>=80);
+
+// Stops that are really one colour stay rejected: no saturation pulls
+// blue-red-4k-warm's yellow and green apart.
+assert.equal(ctx.rampStops(`red = "#b88485"\nyellow = "#e99b8c"\ngreen = "#ea9b8c"\n`),ctx.DEFAULT_STOPS);
+// A partial palette is not a palette, and neither is no palette.
+assert.equal(ctx.rampStops(`red = "#FF5964"\ngreen = "#8BCB68"\n`),ctx.DEFAULT_STOPS);
+assert.equal(ctx.rampStops(''),ctx.DEFAULT_STOPS);
+// Stops are only honoured as a complete set of three.
+assert.deepEqual(ctx.ramp(0,[[1,2,3]]),ctx.ramp(0));
+
+// Every installed theme, the user's own and Omarchy's, must yield three
+// well-formed stops. Checking one directory misses more than half of them.
+let checked=0;
+for(const dir of [path.join(process.env.HOME,'.config/omarchy/themes'),'/usr/share/omarchy/themes']){
+  if(!fs.existsSync(dir)) continue;
+  for(const name of fs.readdirSync(dir)){
+    const file=path.join(dir,name,'colors.toml');
+    if(!fs.existsSync(file)) continue;
+    const stops=ctx.rampStops(fs.readFileSync(file,'utf8'));
+    assert.equal(stops.length,3,name);
+    for(const stop of stops){
+      assert.equal(stop.length,3,name);
+      stop.forEach(v=>assert.ok(Number.isInteger(v)&&v>=0&&v<=255,name+' '+v));
+    }
+    assert.ok(ctx.separation(stops[0],stops[1])>=80,name);
+    assert.ok(ctx.separation(stops[1],stops[2])>=80,name);
+    checked++;
+  }
+}
+
+// The panel must re-read the palette on a theme switch, not just on a file
+// edit: the shell loads colors.toml once and is pushed later themes over IPC.
+const panel=fs.readFileSync(path.join(__dirname,'..','Panel.qml'),'utf8');
+assert.match(panel,/onThemeSignatureChanged:\s*paletteFile\.reload\(\)/);
+
+console.log('Readouts, offline and cold telemetry, decimal units, health scoring, graph ceilings'
+  +' and the theme ramp pass ('+checked+' installed themes checked).');

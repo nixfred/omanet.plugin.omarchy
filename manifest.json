@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.net-pulse",
   "name": "Net Pulse",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "Fred Nix",
   "license": "MIT",
   "description": "A living network chip: throughput, latency, Wi-Fi radio detail, interface settings, seven-day history, and focus-only top talkers.",

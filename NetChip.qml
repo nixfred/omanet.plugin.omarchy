@@ -12,7 +12,10 @@ Item {
     property real activity: 0         // 0–1 normalised traffic, drives packet speed
     property bool animate: true
     property bool compact: false
-    property color tint: Model.ramp(level * 100)
+    // Ramp stops the panel supplies from the active theme; the built-in ramp
+    // stands in when the chip is used on its own.
+    property var stops: null
+    property color tint: Model.ramp(level * 100, stops)
     // The chip body sits on whatever surface holds it, so it reads as cut out
     // of the bar or the card rather than pasted onto them.
     property color body: '#0b141b'
